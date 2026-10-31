@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Maple — play together</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="play">
+    <canvas id="view"></canvas>
+    <div id="crosshair" aria-hidden="true"></div>
+    <div id="maple-tag">Maple</div>
+    <header class="hud-top">
+      <a href="/">Maple</a>
+      <p id="room-badge">Room · …</p>
+      <p id="block-label">Looking at: sky</p>
+      <p id="tutor-badge">Tutor</p>
+      <p id="perf-hud" title="Local frame rate">… FPS</p>
+    </header>
+    <p class="hint">Click to look · WASD walk · Enter chat · share room code with friends</p>
+    <p class="hint zh" lang="zh-CN">点击转头 · WASD 移动 · Enter 聊天 · 把房间码发给同学一起玩</p>
+    <section class="chat" aria-label="English chat">
+      <ol id="log"></ol>
+      <div class="prompts">
+        <button type="button" data-say="Hello Maple!">Hello Maple!</button>
+        <button type="button" data-say="Let's build a bridge.">Let's build a bridge.</button>
+        <button type="button" data-say="follow me">follow me</button>
+        <button type="button" data-say="what is this block?">what is this block?</button>
+      </div>
+      <form id="chat-form">
+        <label class="sr" for="say">Say something in English</label>
+        <input id="say" name="say" maxlength="200" autocomplete="off" placeholder="Say something in English" />
+        <button id="send" type="submit">Send</button>
+      </form>
+      <p id="status-line"></p>
+    </section>
+    <div class="pad" aria-label="Move">
+      <button type="button" data-move="forward">▲</button>
+      <button type="button" data-move="left">◀</button>
+      <button type="button" data-move="back">▼</button>
+      <button type="button" data-move="right">▶</button>
+      <button type="button" data-move="jump">Jump</button>
+    </div>
+    <script type="module" src="/assets/play.js"></script>
+  </body>
+</html>

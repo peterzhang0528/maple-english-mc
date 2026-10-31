@@ -1,0 +1,28 @@
+# Replace the app name, then: fly launch --no-deploy --copy-config
+# fly secrets set ANTHROPIC_API_KEY=...
+# fly deploy
+app = "maple-english-demo"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "47821"
+  WEB_TRUST_PROXY = "true"
+  ANTHROPIC_MODEL = "claude-opus-5-5"
+  ANTHROPIC_EFFORT = "low"
+
+[http_service]
+  internal_port = 47821
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/api/health"

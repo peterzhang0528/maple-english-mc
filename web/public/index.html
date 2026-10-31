@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Maple — play English together in the browser</title>
+    <meta
+      name="description"
+      content="Enter a name, create or join a room, and practice English with friends and Maple. No Minecraft install."
+    />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="landing">
+    <header class="top">
+      <a class="mark" href="/">Maple</a>
+      <span class="text-link">Friends + Maple · 网页联机</span>
+    </header>
+    <main>
+      <section class="hero">
+        <p class="kicker">Browser multiplayer · 浏览器联机试玩</p>
+        <h1>Play with friends and Maple. Practice English while you explore.</h1>
+        <p class="lede">
+          Open this link, type your name, create a room or join a friend's code.
+          Up to 4 players share one island. Maple greets you and invites short English play.
+          No Java, no Minecraft client, no API key on the page.
+        </p>
+        <form class="lobby" id="lobby" autocomplete="on">
+          <label>
+            <span>Your name · 昵称</span>
+            <input id="display-name" name="name" maxlength="20" required placeholder="e.g. Alex / 小明" />
+          </label>
+          <label>
+            <span>Room code · 房间码 <em>(optional to join)</em></span>
+            <input id="room-code" name="room" maxlength="6" placeholder="ABCD" style="text-transform:uppercase" />
+          </label>
+          <div class="actions">
+            <button class="button" type="submit" name="intent" value="create">Create room · 创建房间</button>
+            <button class="button secondary" type="submit" name="intent" value="join">Join room · 加入房间</button>
+          </div>
+          <p class="fine" id="lobby-hint">Share the room code so classmates can join the same world.</p>
+        </form>
+        <p class="fine" lang="zh-CN">
+          点开链接 → 输入昵称 → 创建或加入房间 → 在浏览器里一起玩。不需要安装 Java / Minecraft。
+        </p>
+        <p class="fine" lang="zh-CN" style="margin-top:0.6rem;padding:0.55rem 0.75rem;background:#fff6d8;border:1px solid #e6d28a;border-radius:0.7rem">
+          <strong>流畅自测请用本机：</strong>在这台 Mac 上打开
+          <a href="http://127.0.0.1:47821/">http://127.0.0.1:47821/</a>
+          （localhost）。公网隧道适合给同学联机，延迟更高，画面也可能更卡。
+        </p>
+
+      </section>
+
+      <section class="split">
+        <article>
+          <h2>How to play</h2>
+          <ol>
+            <li>Enter your name. Create a room, or join with a 4-letter code.</li>
+            <li>Share the room code. Friends open this same link and join.</li>
+            <li>WASD to walk, mouse to look, Enter to type English to Maple.</li>
+            <li>Everyone in the room sees each other move and hears Maple's chat.</li>
+          </ol>
+          <h3>Try saying</h3>
+          <div class="chips">
+            <span>Hello Maple!</span>
+            <span>Let's build a bridge.</span>
+            <span>follow me</span>
+            <span>what is this block?</span>
+          </div>
+        </article>
+        <article lang="zh-CN">
+          <h2>怎么玩</h2>
+          <ol>
+            <li>输入昵称。创建房间，或用 4 位房间码加入。</li>
+            <li>把房间码发给同学。大家打开同一个链接加入。</li>
+            <li>WASD 走路，鼠标转头，Enter 用英语和 Maple 聊天。</li>
+            <li>同一房间里能看到彼此移动，Maple 的回复大家都能看到。</li>
+          </ol>
+          <h3>可以这样说</h3>
+          <div class="chips">
+            <span>Hello Maple!</span>
+            <span>Let's dig together.</span>
+            <span>come here</span>
+            <span>how do I craft a pickaxe?</span>
+          </div>
+        </article>
+      </section>
+
+      <section class="note">
+        <h2>What this demo is</h2>
+        <p>
+          A small shared voxel island in the browser — not Mojang's game. Typing multiplayer first.
+          Classroom Java + Doubao mic stays on the separate Java path. Feedback welcome!
+        </p>
+        <p lang="zh-CN">
+          这是浏览器里的共享方块小岛，不是官方 Minecraft。当前版本先做打字联机；Java 版语音陪练仍是另一条路径。欢迎反馈！
+        </p>
+      </section>
+    </main>
+    <script>
+      const form = document.getElementById('lobby')
+      const nameInput = document.getElementById('display-name')
+      const roomInput = document.getElementById('room-code')
+      const hint = document.getElementById('lobby-hint')
+      try {
+        const saved = localStorage.getItem('maple_display_name')
+        if (saved) nameInput.value = saved
+      } catch {}
+      const params = new URLSearchParams(location.search)
+      if (params.get('room')) roomInput.value = params.get('room')
+      form.addEventListener('submit', (event) => {
+        event.preventDefault()
+        const submitter = event.submitter
+        const intent = submitter && submitter.value ? submitter.value : 'create'
+        const name = nameInput.value.trim()
+        const room = roomInput.value.trim().toUpperCase()
+        if (!name) {
+          hint.textContent = 'Please enter a name. / 请先输入昵称。'
+          nameInput.focus()
+          return
+        }
+        try { localStorage.setItem('maple_display_name', name) } catch {}
+        if (intent === 'join' && !room) {
+          hint.textContent = 'Enter a room code to join. / 加入房间请填写房间码。'
+          roomInput.focus()
+          return
+        }
+        const next = new URL('/play', location.origin)
+        next.searchParams.set('name', name)
+        if (intent === 'join') next.searchParams.set('room', room)
+        else if (room) next.searchParams.set('room', room)
+        location.href = next.toString()
+      })
+    </script>
+  </body>
+</html>

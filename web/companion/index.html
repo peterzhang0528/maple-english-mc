@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Maple voice — Java Minecraft</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1c2416;
+        --moss: #2f6b3a;
+        --cream: #f3ecdc;
+        --paper: #fffaf1;
+        --line: #ddc9a4;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at 12% -10%, #d7efb8 0, transparent 34%),
+          linear-gradient(#f7f1e4, #e7f0d8);
+        font-family: "Iowan Old Style", Palatino, Georgia, serif;
+      }
+      main {
+        max-width: 40rem;
+        margin: 0 auto;
+        padding: 2.2rem 1.2rem 3rem;
+      }
+      .kicker {
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        font-size: 0.82rem;
+        color: var(--moss);
+      }
+      h1 { font-size: 2.1rem; line-height: 1.15; margin: 0.3rem 0 0.6rem; }
+      p { line-height: 1.45; }
+      .card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 1rem 1rem 0.4rem;
+        margin: 1rem 0;
+      }
+      label { display: block; font-weight: 600; margin-bottom: 0.8rem; }
+      input {
+        display: block;
+        width: 100%;
+        margin-top: 0.35rem;
+        padding: 0.7rem 0.8rem;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        font: inherit;
+        background: white;
+      }
+      button {
+        width: 100%;
+        margin: 0.4rem 0 0.8rem;
+        padding: 0.9rem 1rem;
+        border: 0;
+        border-radius: 999px;
+        background: var(--moss);
+        color: white;
+        font: inherit;
+        font-size: 1.15rem;
+        cursor: pointer;
+      }
+      button[aria-pressed='true'] { background: #8a3b2a; }
+      button:disabled { opacity: 0.7; cursor: wait; }
+      #status, #bot-status { min-height: 1.4em; }
+      ol { padding-left: 1.2rem; }
+      li { margin: 0.35rem 0; }
+      .fine { font-size: 0.95rem; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="kicker">Java Minecraft · microphone</p>
+      <h1>Speak English to Maple</h1>
+      <p>
+        This window is the microphone beside your Minecraft Java client. Maple is the bot inside that world.
+        This is not the browser voxel island.
+      </p>
+      <p lang="zh-CN">
+        这个窗口是 Java 版 Minecraft 旁边的麦克风。Maple 是已经进入游戏的机器人。这里不是浏览器里的方块小岛。
+      </p>
+      <div class="card">
+        <p id="bot-status">Looking for Maple…</p>
+        <label>
+          Your Minecraft name
+          <input id="player" name="player" maxlength="16" autocomplete="off" placeholder="Steve" />
+        </label>
+        <p id="players"></p>
+        <button id="talk" type="button" aria-pressed="false">Start talking · 开始说话</button>
+        <p id="status"></p>
+      </div>
+      <ol id="log" aria-label="Transcript"></ol>
+      <p class="fine">
+        You hear Maple in this window. Her words also appear in the Minecraft chat, and she can follow you in the world.
+        The official Java client has no microphone for bots. Headphones help if she starts answering herself.
+      </p>
+      <p class="fine" lang="zh-CN">
+        你会在这个窗口里听见 Maple。她的话也会出现在游戏聊天里，并可以在世界里跟着你。官方 Java 客户端不能给机器人提供麦克风。如果她开始回答自己的声音，请戴上耳机。
+      </p>
+    </main>
+    <script src="/companion.js"></script>
+  </body>
+</html>

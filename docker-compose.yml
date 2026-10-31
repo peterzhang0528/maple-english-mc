@@ -1,0 +1,24 @@
+services:
+  maple-web:
+    build: .
+    ports:
+      - "47821:47821"
+    environment:
+      PORT: "47821"
+      WEB_TRUST_PROXY: "true"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-claude-opus-5-5}
+      ANTHROPIC_EFFORT: ${ANTHROPIC_EFFORT:-low}
+      ENGLISH_DIFFICULTY: ${ENGLISH_DIFFICULTY:-beginner}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:47821/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

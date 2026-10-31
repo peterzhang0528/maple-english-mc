@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+.local-server/
+.minecraft-auth/
+agent-tools/
+web/public/assets/
+*.log
+.DS_Store
+
+# secrets & backups
+.env.*
+!.env.example
+*.pem
+
+# local noise
+.local-logs/
+*.bak
+*.zip

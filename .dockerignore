@@ -1,0 +1,8 @@
+node_modules
+.git
+.env
+.local-server
+.minecraft-auth
+agent-tools
+web/public/assets
+*.log

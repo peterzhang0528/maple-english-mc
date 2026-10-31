@@ -1,0 +1,42 @@
+{
+  "name": "minecraft-english-companion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Practice conversational English with Maple, in a browser world or on a Minecraft Java server.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "build:web": "esbuild web/client/main.ts --bundle --minify --outfile=web/public/assets/play.js --format=esm --target=es2022",
+    "web": "npm run build:web && tsx src/web/server.ts",
+    "web:serve": "tsx src/web/server.ts",
+    "demo": "tsx scripts/demo.ts",
+    "smoke": "tsx scripts/smoke.ts",
+    "server": "bash scripts/start-local-server.sh",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test test/intents.test.ts test/limiter.test.ts test/perception.test.ts test/recipes.test.ts test/split.test.ts test/turn.test.ts test/voice.test.ts test/voiceCompanion.test.ts test/web.test.ts test/rooms.test.ts",
+    "check": "npm run typecheck && npm test",
+    "start:spark": "VOICE_COMPANION=0 MC_USERNAME=Spark COMPANION_PERSONA=spark tsx src/index.ts",
+    "start:duo": "bash scripts/start-duo.sh"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.134.0",
+    "dotenv": "^18.0.8",
+    "minecraft-data": "^3.117.0",
+    "mineflayer": "^4.39.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}
