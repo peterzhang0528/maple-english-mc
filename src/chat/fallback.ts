@@ -70,9 +70,9 @@ function difficultyLine(difficulty: Difficulty): string {
 
 function helpLine(difficulty: Difficulty): string {
   if (difficulty === 'beginner') {
-    return 'I can follow you, come to you, wait, and look. Ask "what is this block?" or "how do I craft a pickaxe?". Say beginner or intermediate to change the English.'
+    return 'I can follow you, dig, build a house, give items, and warn about danger. Say help me, dig, build a house, or give. Ask "what is this block?" or "how do I craft a pickaxe?".'
   }
-  return 'I can follow, come closer, wait, and look at what you see. Ask about a block or a crafting recipe, and say beginner or intermediate if you want a different level.'
+  return 'I can follow, dig, build a house, give items, and call out danger. Say help me, dig with me, build a house, or give. Ask about a block or a crafting recipe too.'
 }
 
 function blockLine(input: TutorInput): string {
@@ -95,13 +95,30 @@ function craftLine(input: TutorInput): string {
 }
 
 function movementLine(input: TutorInput): string | null {
-  const failed = input.world.actionNotes.find((note) => /cannot see|not sure|cannot walk/i.test(note))
+  const failed = input.world.actionNotes.find((note) =>
+    /cannot see|not sure|cannot walk|cannot find|cannot place|do not have items/i.test(note),
+  )
   if (failed) {
     return input.difficulty === 'beginner'
       ? `${failed} Please walk closer.`
       : `${failed} Step a little closer and try again.`
   }
   const who = input.username
+  if (input.intents.some((intent) => intent.type === 'assist')) {
+    return `Okay ${who}! I am coming to help. Dig, build, or say give!`
+  }
+  if (input.intents.some((intent) => intent.type === 'dig')) {
+    return `Okay ${who}! Let's dig together. Chop the block near you!`
+  }
+  if (input.intents.some((intent) => intent.type === 'build_house')) {
+    return `Okay ${who}! Let's build a house — walls, a door, and a roof!`
+  }
+  if (input.intents.some((intent) => intent.type === 'build')) {
+    return `Okay ${who}! Let's build together. Put one block here!`
+  }
+  if (input.intents.some((intent) => intent.type === 'give')) {
+    return `Okay ${who}! Here — items for you. Say thank you!`
+  }
   if (input.intents.some((intent) => intent.type === 'follow')) {
     return input.difficulty === 'beginner'
       ? `Okay ${who}, I will follow you. "Follow me" means walk behind me. Let's walk together!`
@@ -126,7 +143,14 @@ function movementLine(input: TutorInput): string | null {
 }
 
 function shortMovement(input: TutorInput): string | null {
-  if (input.world.actionNotes.some((note) => /cannot see|cannot walk/i.test(note))) return movementLine(input)
+  if (input.world.actionNotes.some((note) => /cannot see|cannot walk|cannot find|cannot place/i.test(note))) {
+    return movementLine(input)
+  }
+  if (input.intents.some((intent) => intent.type === 'assist')) return 'I am coming to help.'
+  if (input.intents.some((intent) => intent.type === 'dig')) return 'Let us dig together.'
+  if (input.intents.some((intent) => intent.type === 'build_house')) return 'Let us build a house!'
+  if (input.intents.some((intent) => intent.type === 'build')) return 'Let us build together.'
+  if (input.intents.some((intent) => intent.type === 'give')) return 'Here — for you!'
   if (input.intents.some((intent) => intent.type === 'follow')) return 'I will follow you.'
   if (input.intents.some((intent) => intent.type === 'come')) return 'I am coming.'
   if (input.intents.some((intent) => intent.type === 'stop')) return 'I will wait.'

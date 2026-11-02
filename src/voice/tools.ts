@@ -40,10 +40,10 @@ export function effectFromToolCall(name: string, argumentsJson: string, world: T
   if (action === 'inspect_block') {
     return effectFromIntents([{ type: 'inspect_block' }], { ...world, lookingAt: block ?? world.lookingAt })
   }
-  if (action === 'follow' || action === 'come' || action === 'stop' || action === 'look') {
+  if (action === 'follow' || action === 'come' || action === 'stop' || action === 'look' || action === 'dig' || action === 'build' || action === 'build_house' || action === 'give' || action === 'assist') {
     return effectFromIntents([{ type: action }], world)
   }
-  return idle('Choose follow, come, stop, look, inspect_block, or craft.')
+  return idle('Choose follow, come, stop, look, dig, build, build_house, give, assist, inspect_block, or craft.')
 }
 
 export function effectFromSpeech(text: string, world: ToolWorld): MapleToolEffect | null {
@@ -54,6 +54,11 @@ export function effectFromSpeech(text: string, world: ToolWorld): MapleToolEffec
       intent.type === 'stop' ||
       intent.type === 'look' ||
       intent.type === 'inspect_block' ||
+      intent.type === 'dig' ||
+      intent.type === 'build' ||
+      intent.type === 'build_house' ||
+      intent.type === 'give' ||
+      intent.type === 'assist' ||
       intent.type === 'craft',
   )
   if (intents.length === 0) return null

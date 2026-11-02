@@ -5,20 +5,20 @@
 import type { Bot } from 'mineflayer'
 import type { CompanionPersona } from '../chat/persona.js'
 import {
-  envDigLine,
+  envDangerLine,
   envHurtLine,
-  envPlaceLine,
   envTimeLine,
   envWaterLine,
   isCompanionUsername,
 } from '../chat/persona.js'
 import { prettyName } from './phrases.js'
+import { ShortMemory, variedDigLine, variedPlaceLine, type SituateHint } from './fun.js'
 
 // mineflayer event payloads — keep loose to match runtime + typed defs
 type AnyBlock = { name?: string; position: { distanceTo: (other: { x: number; y: number; z: number }) => number } }
 type AnyEntity = { position?: { distanceTo: (other: { x: number; y: number; z: number }) => number }; username?: string }
 
-export type PerceptionKind = 'dig' | 'place' | 'nearby' | 'hurt' | 'water' | 'time' | 'peer'
+export type PerceptionKind = 'dig' | 'place' | 'nearby' | 'hurt' | 'water' | 'time' | 'peer' | 'danger'
 
 export interface PerceptionEvent {
   kind: PerceptionKind
@@ -41,14 +41,52 @@ export interface PerceptionHandle {
   nearbyPlayers: () => Array<{ name: string; distance: number; companion: boolean }>
   /** Nearest non-companion player username, if any. */
   nearestHuman: () => string | null
+  /** Live situate hint + short memory for GPT Live / mini-quests. */
+  situateHint: () => SituateHint
+  rememberKidSaid: (text: string) => void
+  shortMemorySummary: () => string
 }
 
 const VIEW_RANGE = 18
 const POLL_MS = 3_000
 const NOTE_TTL_MS = 45_000
-const COMMENT_COOLDOWN_MS = 18_000
-const DEDUPE_MS = 22_000
+const COMMENT_COOLDOWN_MS = 28_000
+const DEDUPE_MS = 45_000
 const MAX_NOTES = 8
+const DANGER_RANGE = 12
+const LAVA_RANGE = 8
+const HOSTILE_MOBS = new Set([
+  'zombie',
+  'skeleton',
+  'creeper',
+  'spider',
+  'cave_spider',
+  'enderman',
+  'drowned',
+  'witch',
+  'husk',
+  'stray',
+  'phantom',
+  'pillager',
+  'vindicator',
+  'evoker',
+  'ravager',
+  'slime',
+  'magma_cube',
+  'blaze',
+  'ghast',
+  'guardian',
+  'elder_guardian',
+  'warden',
+  'zoglin',
+  'hoglin',
+  'piglin_brute',
+])
+
+const INTERESTING_BLOCK = /(log|leaves|planks|flower|mushroom|torch|chest|crafting_table|furnace|water|lava|ore|wool|door|bed|pumpkin|melon|cactus|bamboo|sugar_cane)/i
+const FRIENDLY_MOBS = new Set([
+  'pig', 'cow', 'sheep', 'chicken', 'horse', 'cat', 'wolf', 'fox', 'rabbit', 'villager', 'iron_golem',
+])
 
 const DIG_INTEREST = /(_log|wood|leaves|_planks|dirt|grass_block|stone|cobblestone|sand|gravel|ore)$/i
 
@@ -76,6 +114,10 @@ export function attachPerception(
   let lastTimeBucket: 'day' | 'night' | 'unknown' = 'unknown'
   let lastNearbyKey = ''
   let stopped = false
+  const shortMemory = new ShortMemory(6)
+  const digLineRecent: string[] = []
+  const placeLineRecent: string[] = []
+  let lastSituate: SituateHint = { time: 'unknown', nearbyBlock: null, nearbyMob: null, kidLastDid: null, kidLastSaid: null }
 
   const buddyName = (): string | null => {
     const nearby = listNearby(bot)
@@ -118,7 +160,12 @@ export function attachPerception(
     const actor = actorName(entity) ?? nearestDiggerNear(block)
     const label = prettyName(block.name)
     const who = actor ?? 'someone'
-    const text = envDigLine(options.persona, who, label, buddyName())
+    const text = variedDigLine(options.persona, who, label, buddyName(), digLineRecent)
+    shortMemory.push(`${who} digging ${label}`)
+    {
+      const buddy = buddyName()
+      if (buddy && who.toLowerCase() === buddy.toLowerCase()) lastSituate.kidLastDid = `dug ${label}`
+    }
     remember({
       kind: 'dig',
       text,
@@ -142,7 +189,7 @@ export function attachPerception(
       const who = nearestDiggerNear(oldBlock!) ?? 'someone'
       remember({
         kind: 'dig',
-        text: envDigLine(options.persona, who, prettyName(oldName), buddyName()),
+        text: (() => { const label = prettyName(oldName); const line = variedDigLine(options.persona, who, label, buddyName(), digLineRecent); shortMemory.push(`${who} broke ${label}`); if (buddyName() && who.toLowerCase() === buddyName()!.toLowerCase()) lastSituate.kidLastDid = `broke ${label}`; return line })(),
         actor: who === 'someone' ? undefined : who,
         notable: true,
         at: Date.now(),
@@ -154,7 +201,7 @@ export function attachPerception(
       const who = nearestDiggerNear(newBlock!) ?? 'someone'
       remember({
         kind: 'place',
-        text: envPlaceLine(options.persona, who, prettyName(newName), buddyName()),
+        text: (() => { const label = prettyName(newName); const line = variedPlaceLine(options.persona, who, label, buddyName(), placeLineRecent); shortMemory.push(`${who} placed ${label}`); if (buddyName() && who.toLowerCase() === buddyName()!.toLowerCase()) lastSituate.kidLastDid = `placed ${label}`; return line })(),
         actor: who === 'someone' ? undefined : who,
         notable: true,
         at: Date.now(),
@@ -233,6 +280,32 @@ export function attachPerception(
       })
     }
     if (bucket !== 'unknown') lastTimeBucket = bucket
+
+    lastSituate.time = bucket
+
+    const intrigue = scanInteresting(bot)
+    if (intrigue.block) lastSituate.nearbyBlock = intrigue.block
+    if (intrigue.mob) lastSituate.nearbyMob = intrigue.mob
+    if (intrigue.note) {
+      remember({
+        kind: 'nearby',
+        text: intrigue.note,
+        notable: intrigue.notable,
+        at: now,
+        key: intrigue.key,
+      })
+    }
+
+    const danger = scanDangerFor(bot, options.persona, buddyName())
+    if (danger) {
+      remember({
+        kind: 'danger',
+        text: danger.text,
+        notable: true,
+        at: now,
+        key: danger.key,
+      })
+    }
   }
 
   // Typed defs omit the digger entity arg; runtime still passes it.
@@ -273,7 +346,128 @@ export function attachPerception(
     },
     nearbyPlayers: () => listNearby(bot),
     nearestHuman: () => buddyName(),
+    situateHint: () => ({ ...lastSituate }),
+    rememberKidSaid: (said: string) => {
+      const clean = said.replace(/\s+/g, ' ').trim().slice(0, 80)
+      if (!clean) return
+      lastSituate.kidLastSaid = clean
+      shortMemory.push(`kid said: ${clean}`)
+    },
+    shortMemorySummary: () => shortMemory.summary(),
   }
+}
+
+
+export function hostileMobLabel(name: string | undefined | null): string | null {
+  if (!name) return null
+  const key = name.toLowerCase().replace(/^minecraft:/, '')
+  if (!HOSTILE_MOBS.has(key)) return null
+  return key.replaceAll('_', ' ')
+}
+
+
+function scanInteresting(
+  bot: Bot,
+): { block: string | null; mob: string | null; note: string | null; notable: boolean; key: string } {
+  const empty = { block: null, mob: null, note: null, notable: false, key: 'interest:none' }
+  if (!bot.entity?.position) return empty
+  let blockLabel: string | null = null
+  try {
+    const positions = bot.findBlocks({
+      matching: (block) => Boolean(block?.name && INTERESTING_BLOCK.test(block.name) && !/leaves$/i.test(block.name)),
+      maxDistance: 10,
+      count: 8,
+    })
+    for (const pos of positions) {
+      const block = bot.blockAt(pos)
+      if (block?.name) {
+        blockLabel = prettyName(block.name)
+        break
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  let mobLabel: string | null = null
+  for (const entity of Object.values(bot.entities ?? {})) {
+    if (!entity || entity === bot.entity || !entity.position) continue
+    const name = (entity as { name?: string }).name?.toLowerCase().replace(/^minecraft:/, '') ?? ''
+    const hostile = hostileMobLabel(name)
+    const friendly = FRIENDLY_MOBS.has(name) ? name.replaceAll('_', ' ') : null
+    const label = hostile ?? friendly
+    if (!label) continue
+    const d = bot.entity.position.distanceTo(entity.position)
+    if (d > 14) continue
+    mobLabel = label
+    break
+  }
+  if (!blockLabel && !mobLabel) return empty
+  const bits: string[] = []
+  if (blockLabel) bits.push(blockLabel)
+  if (mobLabel) bits.push(mobLabel)
+  return {
+    block: blockLabel,
+    mob: mobLabel,
+    note: `Nearby: ${bits.join(' and ')}.`,
+    notable: Boolean(mobLabel),
+    key: `interest:${bits.join('|')}`,
+  }
+}
+
+function scanDangerFor(
+  bot: Bot,
+  persona: CompanionPersona,
+  buddyName: string | null,
+): { text: string; key: string } | null {
+  if (!bot.entity?.position) return null
+  // Lava near bot or buddy
+  const anchors: Array<{ x: number; y: number; z: number }> = [bot.entity.position]
+  if (buddyName) {
+    const buddyPos = bot.players[buddyName]?.entity?.position
+    if (buddyPos) anchors.push(buddyPos)
+  }
+  for (const point of anchors) {
+    try {
+      const lava = bot.findBlocks({
+        matching: (block) => Boolean(block?.name && /lava/i.test(block.name)),
+        maxDistance: LAVA_RANGE,
+        count: 1,
+        point: point as never,
+      })
+      if (lava.length > 0) {
+        return {
+          text: envDangerLine(persona, 'lava', 'lava', buddyName),
+          key: 'danger:lava',
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  // Hostile mobs near bot/buddy
+  let best: { label: string; d: number } | null = null
+  for (const entity of Object.values(bot.entities ?? {})) {
+    if (!entity || entity === bot.entity) continue
+    const name = (entity as { name?: string }).name
+    const label = hostileMobLabel(name)
+    if (!label || !entity.position) continue
+    let d = bot.entity.position.distanceTo(entity.position)
+    if (buddyName) {
+      const buddyPos = bot.players[buddyName]?.entity?.position
+      if (buddyPos) d = Math.min(d, buddyPos.distanceTo(entity.position))
+    }
+    if (d > DANGER_RANGE) continue
+    if (!best || d < best.d) best = { label, d }
+  }
+  if (best) {
+    return {
+      text: envDangerLine(persona, 'mob', best.label, buddyName),
+      key: `danger:mob:${best.label}`,
+    }
+  }
+
+  return null
 }
 
 function listNearby(bot: Bot): Array<{ name: string; distance: number; companion: boolean }> {
@@ -292,19 +486,21 @@ function listNearby(bot: Bot): Array<{ name: string; distance: number; companion
 }
 
 
-/** Play-invite / reaction from peer chat — ignore greet spam. */
+/** Play-invite / banter / reaction from peer chat — ignore empty greet spam. */
 export function isPeerPlayChat(text: string, selfUsername: string): boolean {
   const lower = text.trim().toLowerCase()
-  if (!lower || lower.length > 200) return false
+  if (!lower || lower.length > 220) return false
   // Spawn / self-intro lines (may mention race/follow as canned greet).
   if (/\bi am (maple|spark)\b/.test(lower)) return false
   if (/^(hi|hey|hello|howdy|good (morning|night|afternoon)|still here)[.!\s]*$/i.test(lower)) return false
   const self = selfUsername.toLowerCase()
   if (lower.includes(self)) return true
-  if (/\b(race you and|dig with me|build a bridge|explore or build|together|or dig with me)\b/i.test(lower)) {
+  if (/\b(race you|dig with|build a|explore|together|follow me|come on|jump in|you in)\b/i.test(lower)) {
     return true
   }
-  return /\b(race|dig|bridge|follow me|come here|let'?s|challenge|chop|mine|swim)\b/i.test(lower)
+  return /\b(race|dig|bridge|follow|come here|let'?s|challenge|chop|mine|swim|look at|spot|blocks|tree|hill)\b/i.test(
+    lower,
+  )
 }
 
 export function peerReplyAllowed(input: {
@@ -312,6 +508,7 @@ export function peerReplyAllowed(input: {
   now: number
   cooldownMs?: number
 }): boolean {
-  const cool = input.cooldownMs ?? 28_000
+  // Party vibe: allow peer replies more often, still avoid instant ping-pong storms.
+  const cool = input.cooldownMs ?? 12_000
   return input.now - input.lastPeerReplyAt >= cool
 }

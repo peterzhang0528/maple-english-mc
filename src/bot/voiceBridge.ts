@@ -4,10 +4,11 @@ import { SendQueue } from '../chat/limiter.js'
 import { toChatLines } from '../chat/split.js'
 import { redactSecrets } from '../voice/config.js'
 import { performIntents } from '../behavior/actions.js'
+import { parseIntents } from '../behavior/intents.js'
 import type { Intent } from '../types.js'
 import { isCompanionUsername } from '../chat/persona.js'
 
-const MOVE_TYPES = new Set(['follow', 'come', 'stop', 'look', 'inspect_block'])
+const MOVE_TYPES = new Set(['follow', 'come', 'stop', 'look', 'inspect_block', 'dig', 'build', 'build_house', 'give', 'assist'])
 const DEDUPE_MS = 8_000
 
 export interface VoiceMouth {
@@ -77,6 +78,16 @@ export async function applySpokenTurn(input: {
   if (message.type === 'user_text' && message.final === true && typeof message.text === 'string') {
     const heard = message.text.replace(/\s+/g, ' ').trim().slice(0, 300)
     if (heard) console.log(`[maple] heard: ${heard}`)
+    // Pause peer party chat so Maple/Spark do not talk over the kid on mic.
+    if (heard && input.bot) {
+      ;(input.bot as { mapleHumanChatAt?: number }).mapleHumanChatAt = input.now ?? Date.now()
+      const remember = (input.bot as { mapleRememberSaid?: (t: string) => void }).mapleRememberSaid
+      if (typeof remember === 'function') remember(heard)
+    }
+    // GPT Live only posts transcripts (no tool/action channel). Parse walk intents here
+    // the same way Doubao's effectFromSpeech does, so "come here / follow me" moves the body.
+    const intents = parseIntents(heard).filter((intent) => MOVE_TYPES.has(intent.type))
+    if (intents.length > 0) await performVoiceIntents(input, intents)
     return
   }
 
@@ -123,6 +134,9 @@ async function performVoiceIntents(
     return
   }
   console.log(`[maple] voice ${intents.map((intent) => intent.type).join(', ')} -> ${player}`)
+  const marked = bot as { mapleHoldStillUntil?: number }
+  if (intents.some((intent) => intent.type === 'stop')) marked.mapleHoldStillUntil = Date.now() + 45_000
+  else if (intents.some((intent) => intent.type === 'follow' || intent.type === 'come' || intent.type === 'dig' || intent.type === 'build' || intent.type === 'build_house' || intent.type === 'give' || intent.type === 'assist')) marked.mapleHoldStillUntil = 0
   let notes: string[] = []
   try {
     notes = await performIntents(bot, player, intents)

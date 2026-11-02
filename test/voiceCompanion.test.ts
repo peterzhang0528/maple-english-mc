@@ -98,6 +98,31 @@ test('spoken text is chatted in Java and a follow intent walks toward the player
   assert.deepEqual(world.chats, ['I will follow you. [redacted]'])
 })
 
+
+test('GPT Live user_text come here walks toward the named player', async () => {
+  const world = fakeWorld()
+  const mouth = createVoiceMouth()
+  const queue = new SendQueue(0)
+  await applySpokenTurn({
+    bot: world.bot,
+    config,
+    queue,
+    mouth,
+    requestedPlayer: 'Steve',
+    message: { type: 'user_text', text: 'Come here, Maple', final: true },
+  })
+  assert.equal(world.goals.length, 1)
+  await applySpokenTurn({
+    bot: world.bot,
+    config,
+    queue,
+    mouth,
+    requestedPlayer: 'Steve',
+    message: { type: 'user_text', text: 'can you move please', final: true },
+  })
+  assert.equal(world.goals.length, 2)
+})
+
 test('the Java mic page hides keys and drives the Mineflayer bot', async () => {
   const voice = loadVoiceConfig({
     DOUBAO_APP_ID: '3496507434',
@@ -251,3 +276,31 @@ async function waitFor(check: () => boolean): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 20))
   }
 }
+
+
+test('party-say queues Spark lines for mic-page TTS', async () => {
+  const companion = await startJavaVoiceCompanion({
+    config,
+    getBot: () => null,
+    voice: loadVoiceConfig({}),
+    port: 0,
+    host: '127.0.0.1',
+    env: { VOICE_COMPANION: '1', OPENAI_LIVE: '0' },
+  })
+  assert.ok(companion.url)
+  const post = await fetch(`${companion.url}/api/party-say`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ speaker: 'Spark', text: 'Race you to the bridge!' }),
+  })
+  assert.equal(post.status, 200)
+  const queued = await post.json()
+  assert.equal(queued.ok, true)
+  const pull = await fetch(`${companion.url}/api/party-say?after=0`)
+  const body = await pull.json()
+  assert.equal(body.ok, true)
+  assert.equal(body.lines.length, 1)
+  assert.equal(body.lines[0].speaker, 'Spark')
+  assert.match(body.lines[0].text, /Race you/)
+  await companion.close()
+})

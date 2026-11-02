@@ -41,3 +41,40 @@ export function inspectMiss(): string {
 export function cannotWalk(): string {
   return 'I cannot walk yet. I just joined.'
 }
+
+export function digOk(blockName: string): string {
+  return `I am digging ${prettyName(blockName)} with you.`
+}
+
+export function digMiss(): string {
+  return 'I cannot find a soft block near you. Come closer, then say dig again.'
+}
+
+export function buildOk(blockName: string): string {
+  return `I am placing ${prettyName(blockName)} with you.`
+}
+
+export function buildMiss(): string {
+  return 'I cannot place a block here yet. Come closer, then say build again.'
+}
+
+export function giveOk(itemName: string, who: string): string {
+  return `Here, ${who} — ${prettyName(itemName)} for you!`
+}
+
+export function giveMiss(who: string): string {
+  return `I do not have items for ${who} yet. Say dig with me, then give again.`
+}
+
+export function assistOk(who: string): string {
+  return `I am coming to help ${who}. Dig, build, or say give!`
+}
+
+export function houseOk(placed: number, totalLeft: number): string {
+  if (totalLeft <= 0) return `House done! We placed ${placed} blocks. Come inside!`
+  return `Building a house with you — ${placed} blocks. Say build a house again for more!`
+}
+
+export function houseMiss(): string {
+  return 'I cannot start the house yet. Come closer, then say build a house again.'
+}

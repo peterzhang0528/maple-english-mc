@@ -15,7 +15,22 @@ let ws = null
 let live = false
 let ready = false
 let capture = null
-let voiceOn = false
+/** @type {'off'|'doubao'|'gpt-live'} */
+let voiceMode = 'off'
+
+/** GPT Live WebRTC state */
+let peer = null
+let eventsChannel = null
+let microphone = null
+let remoteAudio = null
+let closeTimeout = null
+let liveFinalized = false
+let userBuf = ''
+let mapleBuf = ''
+let userFlushTimer = 0
+let mapleFlushTimer = 0
+let partyAfter = 0
+let partySpeaking = false
 
 playerInput.value = localStorage.getItem(PLAYER_KEY) || ''
 playerInput.addEventListener('input', () => {
@@ -31,12 +46,18 @@ void refresh()
 setInterval(() => {
   void refresh()
 }, 2000)
+setInterval(() => {
+  void pollPartySay()
+}, 900)
 if (playerInput.value.trim()) void publishPlayer()
 
 async function refresh() {
   try {
     const health = await (await fetch('/api/health')).json()
-    voiceOn = health.voice === 'doubao'
+    const raw = String(health.voice || 'off')
+    if (raw === 'gpt-live' || raw === 'openai' || raw === 'openai-live') voiceMode = 'gpt-live'
+    else if (raw === 'doubao') voiceMode = 'doubao'
+    else voiceMode = 'off'
     const where = health.server ? ` Join Java at ${health.server}.` : ''
     if (health.bot === 'online') {
       botStatus.textContent = `${health.botName || 'Maple'} is in the Java world.${where}`
@@ -47,9 +68,11 @@ async function refresh() {
     playersLine.textContent = names.length
       ? `In this world: ${names.join(', ')}`
       : 'No other player is in the world yet.'
-    if (!live && !voiceOn) {
+    if (!live && voiceMode === 'off') {
       statusLine.textContent = 'Voice keys are not set. Talk in Minecraft chat. 未配置语音密钥时，请在游戏里打字。'
-    } else if (!live && voiceOn) {
+    } else if (!live && voiceMode === 'gpt-live') {
+      statusLine.textContent = health.partyTts ? 'Ready: Maple GPT Live + Spark party TTS. Press start. Maple 语音 + Spark 朗读已就绪。' : 'Ready: Maple GPT Live (Spark muted). Press start. Maple 语音；Spark 静音开黑。'
+    } else if (!live && voiceMode === 'doubao') {
       statusLine.textContent = 'Ready: Doubao voice. Press start to talk. 豆包语音已就绪，点开始说话。'
     }
   } catch {
@@ -74,7 +97,7 @@ async function publishPlayer() {
 }
 
 async function begin() {
-  if (!voiceOn) {
+  if (voiceMode === 'off') {
     statusLine.textContent = 'Voice keys are not set. Talk in Minecraft chat. 未配置语音密钥时，请在游戏里打字。'
     return
   }
@@ -84,6 +107,169 @@ async function begin() {
   talkButton.textContent = CONNECTING
   talkButton.setAttribute('aria-pressed', 'true')
   await publishPlayer()
+  if (voiceMode === 'gpt-live') {
+    await beginGptLive()
+    return
+  }
+  await beginDoubao()
+}
+
+async function beginGptLive() {
+  liveFinalized = false
+  userBuf = ''
+  mapleBuf = ''
+  try {
+    const connection = new RTCPeerConnection()
+    peer = connection
+    remoteAudio = new Audio()
+    remoteAudio.autoplay = true
+    connection.addEventListener('track', (event) => {
+      remoteAudio.srcObject = new MediaStream([event.track])
+      remoteAudio.play().catch(() => {
+        statusLine.textContent = 'Click the page once if you cannot hear Maple. 听不见时请点一下页面。'
+      })
+    })
+
+    microphone = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+    })
+    for (const track of microphone.getAudioTracks()) {
+      connection.addTrack(track, microphone)
+    }
+
+    eventsChannel = connection.createDataChannel('oai-events')
+    eventsChannel.addEventListener('message', ({ data }) => {
+      handleLiveEvent(String(data))
+    })
+    eventsChannel.addEventListener('close', (event) => {
+      if (event.target !== eventsChannel) return
+      if (!liveFinalized && live) {
+        statusLine.textContent = 'GPT Live disconnected. You can start again. 连接已断开，可以重新开始。'
+        void shutdown(false)
+      }
+    })
+
+    const offer = await connection.createOffer()
+    await connection.setLocalDescription(offer)
+    if (connection.iceGatheringState !== 'complete') {
+      await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          connection.removeEventListener('icegatheringstatechange', onState)
+          reject(new Error('Timed out while gathering ICE candidates'))
+        }, 10_000)
+        function onState() {
+          if (connection.iceGatheringState !== 'complete') return
+          clearTimeout(timeout)
+          connection.removeEventListener('icegatheringstatechange', onState)
+          resolve(undefined)
+        }
+        connection.addEventListener('icegatheringstatechange', onState)
+        onState()
+      })
+    }
+
+    const sdp = connection.localDescription && connection.localDescription.sdp
+    if (!sdp) throw new Error('Missing local SDP offer')
+    const response = await fetch('/api/session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sdp }),
+    })
+    const raw = await response.text()
+    let result
+    try {
+      result = JSON.parse(raw)
+    } catch {
+      throw new Error(raw.slice(0, 200) || `GPT Live HTTP ${response.status}`)
+    }
+    if (!response.ok) {
+      throw new Error((result && result.error) || raw.slice(0, 200) || `GPT Live HTTP ${response.status}`)
+    }
+    const answerSdp = result && result.transport && result.transport.sdp
+    if (!answerSdp) throw new Error('GPT Live response missing transport.sdp')
+    await connection.setRemoteDescription({ type: 'answer', sdp: answerSdp })
+    statusLine.textContent = 'Waiting for GPT Live session… 正在等待 GPT Live…'
+  } catch (error) {
+    live = false
+    talkButton.disabled = false
+    talkButton.textContent = START
+    talkButton.setAttribute('aria-pressed', 'false')
+    statusLine.textContent = error instanceof Error ? error.message : String(error)
+    cleanupGptLive()
+  }
+}
+
+function handleLiveEvent(raw) {
+  let event
+  try {
+    event = JSON.parse(raw)
+  } catch {
+    return
+  }
+  if (event.type === 'session.started') {
+    ready = true
+    talkButton.disabled = false
+    talkButton.textContent = STOP
+    statusLine.textContent = 'Maple is listening (GPT Live). Speak English. Maple 在听，请说英语。'
+    return
+  }
+  if (event.type === 'session.closed') {
+    liveFinalized = true
+    statusLine.textContent = 'Voice stopped. You can start again. 语音已停止，可以重新开始。'
+    void shutdown(false)
+    return
+  }
+  if (event.type === 'session.input_transcript.delta' && typeof event.delta === 'string') {
+    userBuf += event.delta
+    statusLine.textContent = userBuf
+    window.clearTimeout(userFlushTimer)
+    userFlushTimer = window.setTimeout(() => flushTranscript('user'), 1200)
+    return
+  }
+  if (event.type === 'session.output_transcript.delta' && typeof event.delta === 'string') {
+    mapleBuf += event.delta
+    statusLine.textContent = mapleBuf
+    window.clearTimeout(mapleFlushTimer)
+    mapleFlushTimer = window.setTimeout(() => flushTranscript('maple'), 1200)
+    return
+  }
+  if (event.type === 'error') {
+    const message =
+      (event.error && (event.error.message || event.error.code)) ||
+      (typeof event.message === 'string' ? event.message : 'GPT Live error')
+    statusLine.textContent = String(message)
+  }
+}
+
+function flushTranscript(who) {
+  if (who === 'user') {
+    const text = userBuf.replace(/\s+/g, ' ').trim()
+    userBuf = ''
+    if (!text) return
+    addLine('You', text)
+    void postLiveEvent({ type: 'user_text', text, final: true })
+    return
+  }
+  const text = mapleBuf.replace(/\s+/g, ' ').trim()
+  mapleBuf = ''
+  if (!text) return
+  addLine('Maple', text)
+  void postLiveEvent({ type: 'maple_text', text, final: true })
+}
+
+async function postLiveEvent(message) {
+  try {
+    await fetch('/api/live-event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(message),
+    })
+  } catch {
+    /* Minecraft mirror is best-effort */
+  }
+}
+
+async function beginDoubao() {
   try {
     capture = await openMic((pcm) => {
       if (!ws || ws.readyState !== WebSocket.OPEN || !ready) return
@@ -159,12 +345,109 @@ async function shutdown(tellServer = true) {
   talkButton.disabled = false
   talkButton.textContent = START
   talkButton.setAttribute('aria-pressed', 'false')
+  window.clearTimeout(userFlushTimer)
+  window.clearTimeout(mapleFlushTimer)
+  try {
+    window.speechSynthesis && window.speechSynthesis.cancel()
+  } catch {
+    /* ignore */
+  }
+  partySpeaking = false
+  if (userBuf.trim()) flushTranscript('user')
+  if (mapleBuf.trim()) flushTranscript('maple')
   if (capture) capture.stop()
   capture = null
   speaker.stop()
+  if (voiceMode === 'gpt-live') {
+    if (tellServer && eventsChannel && eventsChannel.readyState === 'open' && !liveFinalized) {
+      try {
+        eventsChannel.send(JSON.stringify({ type: 'session.close' }))
+      } catch {
+        /* ignore */
+      }
+      clearTimeout(closeTimeout)
+      closeTimeout = setTimeout(() => cleanupGptLive(), 1500)
+      return
+    }
+    cleanupGptLive()
+    return
+  }
   if (tellServer && ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'stop' }))
   if (ws) ws.close()
   ws = null
+}
+
+function cleanupGptLive() {
+  clearTimeout(closeTimeout)
+  if (microphone) {
+    for (const track of microphone.getTracks()) track.stop()
+  }
+  microphone = null
+  try {
+    eventsChannel && eventsChannel.close()
+  } catch {
+    /* ignore */
+  }
+  eventsChannel = null
+  try {
+    peer && peer.close()
+  } catch {
+    /* ignore */
+  }
+  peer = null
+  if (remoteAudio) {
+    remoteAudio.srcObject = null
+    remoteAudio = null
+  }
+}
+
+async function pollPartySay() {
+  try {
+    const response = await fetch(`/api/party-say?after=${partyAfter}`)
+    if (!response.ok) return
+    const body = await response.json()
+    const lines = Array.isArray(body.lines) ? body.lines : []
+    for (const line of lines) {
+      if (!line || typeof line.id !== 'number') continue
+      if (line.id <= partyAfter) continue
+      partyAfter = line.id
+      const speaker = String(line.speaker || 'Spark')
+      const text = String(line.text || '').replace(/\s+/g, ' ').trim()
+      if (!text) continue
+      // Maple GPT Live already plays Maple aloud — only speak Spark (and other peers) here.
+      if (speaker.toLowerCase() === 'maple') {
+        addLine(speaker, text)
+        continue
+      }
+      addLine(speaker, text)
+      speakPartyLine(speaker, text)
+    }
+  } catch {
+    /* mic companion may restart */
+  }
+}
+
+function speakPartyLine(speaker, text) {
+  if (!window.speechSynthesis) return
+  const utter = new SpeechSynthesisUtterance(text)
+  utter.lang = 'en-US'
+  utter.rate = speaker.toLowerCase() === 'spark' ? 1.08 : 1
+  utter.pitch = speaker.toLowerCase() === 'spark' ? 1.25 : 1
+  const voices = window.speechSynthesis.getVoices()
+  const pick =
+    voices.find((v) => /en(-|_)US/i.test(v.lang) && /female|samantha|karen|moira|google US English/i.test(v.name)) ||
+    voices.find((v) => /^en/i.test(v.lang)) ||
+    null
+  if (pick) utter.voice = pick
+  utter.onstart = () => {
+    partySpeaking = true
+    statusLine.textContent = `${speaker}: ${text}`
+  }
+  utter.onend = () => {
+    partySpeaking = false
+  }
+  // Soft queue: do not cancel Maple Live audio; browser mixes both.
+  window.speechSynthesis.speak(utter)
 }
 
 function addLine(who, text) {

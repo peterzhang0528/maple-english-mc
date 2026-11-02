@@ -8,6 +8,11 @@ export type Intent =
   | { type: 'stop' }
   | { type: 'look' }
   | { type: 'inspect_block' }
+  | { type: 'dig' }
+  | { type: 'build' }
+  | { type: 'build_house' }
+  | { type: 'give' }
+  | { type: 'assist' }
   | { type: 'craft'; query: string }
   | { type: 'set_difficulty'; difficulty: Difficulty }
   | { type: 'help' }

@@ -72,5 +72,21 @@ else
 fi
 
 echo "[server] Paper 1.21.4 on port ${PORT} (online-mode=false). Ctrl+C to stop."
+# Prefer an installed JDK when /usr/bin/java is only a stub.
+if [[ -z "${JAVA_HOME:-}" ]]; then
+  for candidate in \
+    "$HOME/Library/Application Support/minecraft/runtime/java-runtime-delta/mac-os-arm64/java-runtime-delta/jre.bundle/Contents/Home" \
+    /opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home \
+    /opt/homebrew/opt/openjdk/libexec/openjdk.jdk/Contents/Home \
+    /opt/homebrew/Cellar/openjdk@21/*/libexec/openjdk.jdk/Contents/Home; do
+    if [[ -x "${candidate}/bin/java" ]]; then
+      export JAVA_HOME="$candidate"
+      break
+    fi
+  done
+fi
+if [[ -n "${JAVA_HOME:-}" ]]; then
+  export PATH="${JAVA_HOME}/bin:${PATH}"
+fi
 cd "$SERVER_DIR"
 exec java -Xms512M -Xmx1024M -jar "$JAR" --nogui

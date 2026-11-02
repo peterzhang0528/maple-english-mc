@@ -6,8 +6,11 @@ import type { Bot } from 'mineflayer'
 import type { AppConfig } from '../config.js'
 import { SendQueue } from '../chat/limiter.js'
 import { loadVoiceConfig, secretValues, type VoiceConfig } from '../voice/config.js'
+import { bodySnapshot } from './body.js'
 import { attachVoiceGateway, type VoiceConnector } from '../voice/gateway.js'
 import { applySpokenTurn, createVoiceMouth, listCompanionPlayers } from './voiceBridge.js'
+import { botDisplayName, voiceInstructions } from '../chat/persona.js'
+import { livePlayfulnessRules } from '../behavior/fun.js'
 
 const PAGE = readFileSync(fileURLToPath(new URL('../../web/companion/index.html', import.meta.url)))
 const SCRIPT = readFileSync(fileURLToPath(new URL('../../web/companion/companion.js', import.meta.url)))
@@ -41,10 +44,24 @@ export async function startJavaVoiceCompanion(options: {
   const mouth = createVoiceMouth()
   let requestedPlayer: string | null = null
   let chain: Promise<void> = Promise.resolve()
+  const display = botDisplayName(options.config.persona)
+  const tag = options.config.persona === 'spark' ? 'spark' : 'maple'
+  type PartyLine = { id: number; speaker: string; text: string; at: number }
+  let partySeq = 0
+  const partyLines: PartyLine[] = []
+  const pushPartyLine = (speaker: string, line: string): PartyLine | null => {
+    const clean = line.replace(/\s+/g, ' ').trim().slice(0, 300)
+    if (!clean) return null
+    partySeq += 1
+    const entry: PartyLine = { id: partySeq, speaker: speaker.trim() || display, text: clean, at: Date.now() }
+    partyLines.push(entry)
+    while (partyLines.length > 80) partyLines.shift()
+    return entry
+  }
 
   const server = createServer((request, response) => {
     void handle(request, response).catch((error: unknown) => {
-      console.error(`[maple] voice page: ${error instanceof Error ? error.message : String(error)}`)
+      console.error(`[${tag}] voice page: ${error instanceof Error ? error.message : String(error)}`)
       sendJson(response, 500, { error: 'The voice window hit an error. Refresh the page.' })
     })
   })
@@ -67,7 +84,7 @@ export async function startJavaVoiceCompanion(options: {
           }),
         )
         .catch((error: unknown) => {
-          console.error(`[maple] voice: ${error instanceof Error ? error.message : String(error)}`)
+          console.error(`[${tag}] voice: ${error instanceof Error ? error.message : String(error)}`)
         })
     },
   })
@@ -76,7 +93,7 @@ export async function startJavaVoiceCompanion(options: {
     await listen(server, port, host)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error(`[maple] Mic window did not start (${message}). In-game chat still works.`)
+    console.error(`[${tag}] Mic window did not start (${message}). In-game chat still works.`)
     server.close()
     return { url: null, close: async () => {} }
   }
@@ -88,15 +105,26 @@ export async function startJavaVoiceCompanion(options: {
     const urlPath = new URL(request.url ?? '/', 'http://maple.local')
     if (request.method === 'GET' && urlPath.pathname === '/api/health') {
       const bot = safeBot(options.getBot)
+      const body = bodySnapshot(bot)
+      const situate = bot
+        ? (bot as { mapleSituate?: () => { hint: Record<string, unknown>; memory: string } }).mapleSituate?.()
+        : null
       sendJson(response, 200, {
         ok: true,
         demo: 'java-minecraft',
         voice: openaiLiveEnabled(env) ? 'gpt-live' : voice.enabled ? 'doubao' : 'off',
+        partyTts: Boolean((env.PARTY_VOICE_URL ?? '').trim()),
+        sparkMuted: ['0', 'false', 'no', 'off'].includes((env.PARTY_IDLE_CHAT ?? '0').trim().toLowerCase()),
+        persona: options.config.persona,
         bot: bot ? 'online' : 'offline',
         botName: options.config.username,
         server: `${options.config.host}:${options.config.port}`,
         players: listCompanionPlayers(bot),
         player: requestedPlayer,
+        bodyVisible: Boolean(body),
+        body,
+        situate: situate ?? null,
+        shortMemory: situate?.memory ?? '',
       })
       return
     }
@@ -119,7 +147,7 @@ export async function startJavaVoiceCompanion(options: {
         return
       }
       requestedPlayer = username
-      console.log(`[maple] Voice window player: ${requestedPlayer ?? '(auto)'}`)
+      console.log(`[${tag}] Voice window player: ${requestedPlayer ?? '(auto)'}`)
       sendJson(response, 200, { ok: true, player: requestedPlayer })
       return
     }
@@ -132,7 +160,7 @@ export async function startJavaVoiceCompanion(options: {
       return
     }
     if (request.method === 'POST' && urlPath.pathname === '/api/session') {
-      await createLiveSession(request, response, env)
+      await createLiveSession(request, response, env, options.config.persona, options.getBot)
       return
     }
     if (request.method === 'POST' && urlPath.pathname === '/api/live-event') {
@@ -161,9 +189,41 @@ export async function startJavaVoiceCompanion(options: {
           }),
         )
         .catch((error: unknown) => {
-          console.error(`[maple] live-event: ${error instanceof Error ? error.message : String(error)}`)
+          console.error(`[${tag}] live-event: ${error instanceof Error ? error.message : String(error)}`)
         })
       sendJson(response, 200, { ok: true })
+      return
+    }
+    if (request.method === 'POST' && urlPath.pathname === '/api/party-say') {
+      const body = await readBody(request, 4_000)
+      if (body == null) {
+        sendJson(response, 413, { error: 'Line too long.' })
+        return
+      }
+      let parsed: { speaker?: unknown; text?: unknown }
+      try {
+        parsed = JSON.parse(body) as { speaker?: unknown; text?: unknown }
+      } catch {
+        sendJson(response, 400, { error: 'Send JSON { speaker, text }.' })
+        return
+      }
+      const speaker = typeof parsed.speaker === 'string' ? parsed.speaker.trim().slice(0, 32) : ''
+      const line = typeof parsed.text === 'string' ? parsed.text : ''
+      const entry = pushPartyLine(speaker || 'Spark', line)
+      if (!entry) {
+        sendJson(response, 400, { error: 'Need a short text line.' })
+        return
+      }
+      console.log(`[${tag}] party-say <${entry.speaker}> ${entry.text}`)
+      sendJson(response, 200, { ok: true, id: entry.id })
+      return
+    }
+    if (request.method === 'GET' && urlPath.pathname === '/api/party-say') {
+      const afterRaw = urlPath.searchParams.get('after')
+      const after = afterRaw != null && afterRaw !== '' ? Number(afterRaw) : 0
+      const since = Number.isFinite(after) ? after : 0
+      const lines = partyLines.filter((item) => item.id > since)
+      sendJson(response, 200, { ok: true, lines, latest: partySeq })
       return
     }
     sendJson(response, 404, { error: 'Not found.' })
@@ -255,6 +315,8 @@ async function createLiveSession(
   request: IncomingMessage,
   response: ServerResponse,
   env: NodeJS.ProcessEnv,
+  persona: AppConfig['persona'],
+  optionsGetBot?: () => Bot | null,
 ): Promise<void> {
   const key = env.OPENAI_API_KEY?.trim()
   if (!key) {
@@ -283,17 +345,31 @@ async function createLiveSession(
 
   const model = (env.OPENAI_LIVE_MODEL ?? 'gpt-live-1').trim() || 'gpt-live-1'
   const backend = (env.OPENAI_LIVE_BACKEND_MODEL ?? 'gpt-5.6-terra').trim() || 'gpt-5.6-terra'
+  const who = botDisplayName(persona)
+  const buddy = persona === 'spark' ? 'Maple' : 'Spark'
+  const spoken = voiceInstructions(persona)
+  const play = livePlayfulnessRules()
+  const bodyRule = `You already have a real visible player body named ${who} inside the Java Minecraft world (Mineflayer client on 127.0.0.1:25565, SkinsRestorer skin). You walk, follow, dig, and chat in-game. ${buddy} may stay silent (muted). Never say you have no body, cannot join, or are only a voice. If asked about your body, say: Yes — look for the player named ${who} near you; I can walk to you.`
+  let memoryBit = ''
+  try {
+    const liveBot = optionsGetBot?.()
+    const situate = liveBot
+      ? (liveBot as { mapleSituate?: () => { hint: Record<string, unknown>; memory: string } }).mapleSituate?.()
+      : null
+    if (situate?.memory) memoryBit = ` Short memory of recent turns: ${situate.memory}.`
+    else if (situate?.hint) memoryBit = ` Current situate: ${JSON.stringify(situate.hint)}.`
+  } catch {
+    /* ignore */
+  }
   const payload = {
     session: {
       model,
-      instructions:
-        'You are Maple, a warm Minecraft playmate and English tutor for kids. Speak only English. Be brief, curious, and kind. Help them practice speaking while playing. When they make a clear mistake, gently show one better sentence, then keep playing. Do not lecture. Beginner level: common words, short sentences.',
+      instructions: `${spoken} ${play} ${bodyRule}${memoryBit} Short kid-catchable phrases. Buddy first. React to what the kid just said; propose varied mini-quests when quiet; notice nearby blocks/mobs/time. Beginner level: common words, short sentences.`,
       delegation: {
         type: 'responses',
         responses: {
           model: backend,
-          instructions:
-            'You help Maple, an English playmate in Minecraft. Keep answers short and spoken-friendly. Prefer simple English for kids. No markdown.',
+          instructions: `You help ${who}, a warm English playmate with a real Minecraft body named ${who}. ${buddy} may be silent. Prefer fresh, short spoken English for kids. React to the kid's last words. No markdown. No secrets.`,
         },
       },
     },
@@ -305,17 +381,17 @@ async function createLiveSession(
     (env.HTTPS_PROXY || env.HTTP_PROXY || env.ALL_PROXY || 'http://127.0.0.1:7897').trim() ||
     'http://127.0.0.1:7897'
   const requestBody = JSON.stringify(payload)
-  console.log(`[maple] GPT Live offer sdpChars=${sdp.length} bodyBytes=${Buffer.byteLength(requestBody)}`)
+  console.log(`[voice] GPT Live offer sdpChars=${sdp.length} bodyBytes=${Buffer.byteLength(requestBody)}`)
   try {
     const { writeFile } = await import('node:fs/promises')
     const { join } = await import('node:path')
     await writeFile(join(process.cwd(), '.local-logs/last-live-request.json'), requestBody, 'utf8')
   } catch (error) {
-    console.error(`[maple] could not save live request: ${error instanceof Error ? error.message : String(error)}`)
+    console.error(`[voice] could not save live request: ${error instanceof Error ? error.message : String(error)}`)
   }
   const { status, text } = await postOpenAILive(key, requestBody, proxy)
   if (status < 200 || status >= 300) {
-    console.error(`[maple] GPT Live session failed: HTTP ${status} ${text.slice(0, 400)}`)
+    console.error(`[voice] GPT Live session failed: HTTP ${status} ${text.slice(0, 400)}`)
     let message = `GPT Live failed (${status}). Check the API key, Live access, and proxy ${proxy}.`
     if (status === 429 || /credit_balance_exhausted|insufficient_quota|no credits/i.test(text)) {
       message = 'OpenAI 余额不足（credit_balance_exhausted）。请到 platform.openai.com 充值，或换有额度的公司 key；也可先切回豆包语音。'

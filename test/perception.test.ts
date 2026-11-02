@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { isPeerPlayChat, peerReplyAllowed } from '../src/behavior/perception.js'
+import { hostileMobLabel, isPeerPlayChat, peerReplyAllowed } from '../src/behavior/perception.js'
 import {
+  envDangerLine,
   envDigLine,
+  idlePeerBanter,
   peerPlayInvite,
   proactiveInvite,
   quietNudge,
@@ -28,6 +30,15 @@ test('peer play chat accepts invites and ignores greet spam', () => {
     isPeerPlayChat('Hey! I am Spark. Race you to that hill! Or say: Follow me!', 'Maple'),
     false,
   )
+})
+
+
+test('idle peer banter is play chat and party prompts encourage banter', () => {
+  const line = idlePeerBanter('maple', 'Spark', 'peterzhang0528')
+  assert.equal(isPeerPlayChat(line, 'Spark'), true)
+  assert.match(line, /Spark/)
+  assert.match(systemPrompt('maple'), /party friends|When a human is quiet/i)
+  assert.match(voiceInstructions('spark'), /eyes and ears|mini play|react/i)
 })
 
 test('peer reply cooldown blocks rapid loops', () => {
@@ -86,4 +97,12 @@ test('renderUserTurn includes address_as and noticed observations', () => {
   const rendered = renderUserTurn(input)
   assert.match(rendered, /address_as: peterzhang0528/)
   assert.match(rendered, /\[noticed\]/)
+})
+
+test('danger helpers label hostiles and speak short warnings', () => {
+  assert.equal(hostileMobLabel('zombie'), 'zombie')
+  assert.equal(hostileMobLabel('creeper'), 'creeper')
+  assert.equal(hostileMobLabel('pig'), null)
+  assert.match(envDangerLine('maple', 'mob', 'zombie', 'peterzhang0528'), /Careful, peterzhang0528/)
+  assert.match(envDangerLine('spark', 'lava', 'lava', 'peterzhang0528'), /Lava nearby/)
 })

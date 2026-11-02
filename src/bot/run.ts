@@ -2,7 +2,7 @@ import mineflayer from 'mineflayer'
 import type { Bot } from 'mineflayer'
 import { Movements, pathfinder } from '../pathfinder.js'
 import { playerAllowed, type AppConfig } from '../config.js'
-import { performIntents } from '../behavior/actions.js'
+import { performIntents, softAssistNear, softIdleMove } from '../behavior/actions.js'
 import {
   attachPerception,
   isPeerPlayChat,
@@ -18,13 +18,20 @@ import { completeTurn } from '../chat/turn.js'
 import { createSession, type Session } from '../types.js'
 import { loadVoiceConfig } from '../voice/config.js'
 import { startJavaVoiceCompanion, voiceCompanionEnabled } from './voiceCompanion.js'
+import { announcePartyLine } from './partyVoice.js'
+import { ensureVisibleBody, rescueIfBuried } from './body.js'
 import {
+  idlePeerBanter,
   isCompanionUsername,
   peerPlayInvite,
   proactiveInvite,
-  quietNudge,
   spawnGreeting,
 } from '../chat/persona.js'
+import {
+  proposeMiniQuest,
+  situateComment,
+  variedQuietNudge,
+} from '../behavior/fun.js'
 
 export interface CompanionHandle {
   bot: Bot
@@ -35,11 +42,39 @@ const SLOW_LINE = 'Please wait a moment. In English we can say: Let us speak a l
 const STUCK_LINE = 'I am stuck. Please walk closer so I can follow you.'
 const NUDGE_MS = 50_000
 const PROACTIVE_FOLLOW_DELAY_MS = 1_200
-const PEER_INVITE_MS = 120_000
+const PEER_INVITE_MS = 90_000
 const ENV_COMMENT_POLL_MS = 4_000
+const KEEP_FOLLOW_MS = 5_000
+const HOLD_STILL_MS = 45_000
+/** Idle Maple↔Spark party banter (in-game chat; keeps GPT Live mic free for the kid). */
+const PARTY_CHAT_POLL_MS = 7_000
+const PARTY_CHAT_GAP_MS_MAPLE = 11_000
+const PARTY_CHAT_GAP_MS_SPARK = 14_000
+const PARTY_CHAT_AFTER_HUMAN_MS = 5_500
+
+/** Idle Maple↔Spark chat + peer invites. Set PARTY_IDLE_CHAT=0 to silence Spark/party banter. */
+function partyIdleChatEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const flag = (env.PARTY_IDLE_CHAT ?? '1').trim().toLowerCase()
+  return !['0', 'false', 'no', 'off'].includes(flag)
+}
+
+const IDLE_MOVE_MS = 8_000
+const MINI_QUEST_MS = 32_000
+const SITUATE_CHAT_MS = 22_000
 
 function logTag(config: AppConfig): string {
   return config.persona === 'spark' ? 'spark' : 'maple'
+}
+
+/** In-game chat plus optional mic-page TTS (Spark party voice). */
+function chatOut(bot: Bot, config: AppConfig, line: string): void {
+  // PARTY_IDLE_CHAT=0 => Spark stays fully silent (no MC chat, no party TTS). Maple still speaks.
+  if (config.persona === 'spark' && !partyIdleChatEnabled()) {
+    console.log(`[spark] muted skip: ${line.replace(/\s+/g, ' ').trim().slice(0, 80)}`)
+    return
+  }
+  bot.chat(line)
+  void announcePartyLine(config.username, line)
 }
 
 export async function startCompanion(config: AppConfig, session?: Session): Promise<CompanionHandle> {
@@ -64,7 +99,22 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
   let lastPeerInviteAt = 0
   let nudgeTimer: ReturnType<typeof setInterval> | null = null
   let envTimer: ReturnType<typeof setInterval> | null = null
+  let bodyRescueTimer: ReturnType<typeof setInterval> | null = null
+  let keepFollowTimer: ReturnType<typeof setInterval> | null = null
+  let holdStillUntil = 0
   let perception: PerceptionHandle | null = null
+  let lastHumanChatAt = 0
+  let lastPartyChatAt = 0
+  let lastSoftAssistAt = 0
+  let partyChatTimer: ReturnType<typeof setInterval> | null = null
+  let idleMoveTimer: ReturnType<typeof setInterval> | null = null
+  let miniQuestTimer: ReturnType<typeof setInterval> | null = null
+  let situateTimer: ReturnType<typeof setInterval> | null = null
+  let lastMiniQuestAt = 0
+  let lastSituateChatAt = 0
+  const recentQuestLines: string[] = []
+  const recentSituateLines: string[] = []
+  const recentNudgeLines: string[] = []
 
   const ready = new Promise<void>((resolve, reject) => {
     const fail = (error: Error) => {
@@ -110,7 +160,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     lastChatAt = Date.now()
     const line = proactiveInvite(config.persona, username)
     console.log(`[${tag}] proactive invite -> ${username}`)
-    void queue.send(toChatLines(line, config.chatMaxLineChars, config.chatMaxLines), (text) => bot.chat(text))
+    void queue.send(toChatLines(line, config.chatMaxLineChars, config.chatMaxLines), (text) => chatOut(bot, config, text))
     if (follow) {
       setTimeout(() => {
         void performIntents(bot, username, [{ type: 'come' }]).catch((error: unknown) => {
@@ -120,21 +170,80 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     }
   }
 
-  const maybeInvitePeer = () => {
-    const now = Date.now()
-    if (now - lastPeerInviteAt < PEER_INVITE_MS) return
+  const peerOnline = (): string | null => {
     const peers = Object.keys(bot.players).filter(
       (name) => name.toLowerCase() !== bot.username.toLowerCase() && isCompanionUsername(name),
     )
-    if (peers.length === 0) return
-    // Prefer inviting peer when a human is around so banter includes the kid.
-    const peer = peers[0]!
+    return peers[0] ?? null
+  }
+
+  const maybeInvitePeer = () => {
+    if (!partyIdleChatEnabled()) return
+    const now = Date.now()
+    if (now - lastPeerInviteAt < PEER_INVITE_MS) return
+    const peer = peerOnline()
+    if (!peer) return
     const kid = primaryHuman()
     lastPeerInviteAt = now
     lastChatAt = now
+    lastPartyChatAt = now
     const line = peerPlayInvite(config.persona, peer, kid)
     console.log(`[${tag}] peer invite -> ${peer}${kid ? ` (+${kid})` : ''}`)
-    void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (text) => bot.chat(text))
+    void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (text) => chatOut(bot, config, text))
+  }
+
+  /** Lively Maple↔Spark cross-talk when the kid is quiet (party / 开黑感). */
+  const maybePartyChat = () => {
+    if (!partyIdleChatEnabled()) return
+    const now = Date.now()
+    const gap = config.persona === 'spark' ? PARTY_CHAT_GAP_MS_SPARK : PARTY_CHAT_GAP_MS_MAPLE
+    // Own cadence only — do not let invites/env comments starve party banter.
+    if (now - lastPartyChatAt < gap) return
+    const voiceHumanAt = (bot as { mapleHumanChatAt?: number }).mapleHumanChatAt ?? 0
+    const humanAt = Math.max(lastHumanChatAt, voiceHumanAt)
+    // Do not talk over the kid right after they speak (chat or GPT Live mic).
+    if (humanAt > 0 && now - humanAt < PARTY_CHAT_AFTER_HUMAN_MS) return
+    const peer = peerOnline()
+    if (!peer) return
+    const kid = primaryHuman()
+    lastPartyChatAt = now
+    lastChatAt = now
+    const line = idlePeerBanter(config.persona, peer, kid)
+    console.log(`[${tag}] party chat -> ${peer}${kid ? ` (+${kid})` : ''}`)
+    void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (text) => chatOut(bot, config, text))
+    // Soft come-near peer so bodies look busy together.
+    if (Math.random() < 0.55) {
+      void softIdleMove(bot, { comeName: peer }).catch((error: unknown) => {
+        console.error(`[${tag}] party walk: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    }
+  }
+
+  const maybeIdleMove = () => {
+    const now = Date.now()
+    const marked = (bot as { mapleHoldStillUntil?: number }).mapleHoldStillUntil ?? 0
+    if (now < Math.max(holdStillUntil, marked)) return
+    const human = primaryHuman()
+    const peer = peerOnline()
+    const me = bot.entity?.position
+    if (!me) return
+    // If human is far, keep-follow owns movement.
+    if (human) {
+      const target = bot.players[human]?.entity?.position
+      if (target && me.distanceTo(target) > 4.5) return
+    }
+    const roll = Math.random()
+    if (roll < 0.35 && peer) {
+      void softIdleMove(bot, { lookName: peer }).catch(() => {})
+    } else if (roll < 0.55 && human) {
+      void softIdleMove(bot, { lookName: human }).catch(() => {})
+    } else if (roll < 0.75 && peer) {
+      void softIdleMove(bot, { comeName: peer }).catch(() => {})
+    } else if (roll < 0.9 && human) {
+      void softIdleMove(bot, { comeName: human }).catch(() => {})
+    } else {
+      void softIdleMove(bot, { wander: true }).catch(() => {})
+    }
   }
 
   bot.once('spawn', () => {
@@ -144,10 +253,22 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     movements.scafoldingBlocks = []
     bot.pathfinder.setMovements(movements)
     console.log(`[${tag}] Spawned in ${bot.game.dimension} as ${bot.username} (${bot.version}) persona=${config.persona}`)
+    // Real mineflayer client body: force survival, refresh SkinsRestorer skin, short glow.
+    setTimeout(() => ensureVisibleBody(bot, tag), 800)
+    setTimeout(() => ensureVisibleBody(bot, tag), 4_000)
+    if (config.persona === 'maple') {
+      setTimeout(() => {
+        try {
+          bot.chat('/op Spark')
+        } catch {
+          /* ignore */
+        }
+      }, 1_500)
+    }
     if (config.greet && !greeted) {
       greeted = true
       const hello = spawnGreeting(config.persona, state.difficulty)
-      void queue.send(toChatLines(hello, config.chatMaxLineChars, config.chatMaxLines), (line) => bot.chat(line))
+      void queue.send(toChatLines(hello, config.chatMaxLineChars, config.chatMaxLines), (line) => chatOut(bot, config, line))
       lastChatAt = Date.now()
     }
 
@@ -155,8 +276,41 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
       persona: config.persona,
       onEvent: (event) => {
         console.log(`[${tag}] noticed: ${event.text}`)
+        const human = perception?.nearestHuman()
+        // Soft co-op: when the kid digs/places, join in if nearby.
+        if ((event.kind === 'dig' || event.kind === 'place') && human && event.actor) {
+          if (event.actor.toLowerCase() === human.toLowerCase()) {
+            const now = Date.now()
+            if (now - lastSoftAssistAt > 10_000) {
+              lastSoftAssistAt = now
+              const kind = event.kind === 'dig' ? 'dig' : 'build'
+              void softAssistNear(bot, human, kind)
+                .then((note) => {
+                  if (note) console.log(`[${tag}] soft assist (${kind}): ${note}`)
+                })
+                .catch((error: unknown) => {
+                  console.error(`[${tag}] soft assist: ${error instanceof Error ? error.message : String(error)}`)
+                })
+            }
+          }
+        }
+        // Danger: rush to the kid and let env comment warn them.
+        if (event.kind === 'danger' && human) {
+          void performIntents(bot, human, [{ type: 'come' }]).catch((error: unknown) => {
+            console.error(`[${tag}] danger walk: ${error instanceof Error ? error.message : String(error)}`)
+          })
+        }
       },
     })
+
+    // Expose situate + short memory for GPT Live session / health.
+    ;(bot as { mapleSituate?: () => { hint: ReturnType<NonNullable<typeof perception>['situateHint']>; memory: string } }).mapleSituate = () => ({
+      hint: perception?.situateHint() ?? {},
+      memory: perception?.shortMemorySummary() ?? '',
+    })
+    ;(bot as { mapleRememberSaid?: (t: string) => void }).mapleRememberSaid = (said: string) => {
+      perception?.rememberKidSaid(said)
+    }
 
     // Invite anyone already online shortly after spawn.
     setTimeout(() => {
@@ -175,14 +329,21 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
       if (now - lastNudgeAt < NUDGE_MS) return
       const buddy = primaryHuman()
       if (!buddy) {
+        maybePartyChat()
         maybeInvitePeer()
+        return
+      }
+      // Prefer party banter over tutor-ish nudges when a peer is online.
+      if (peerOnline() && now - lastPartyChatAt >= (config.persona === 'spark' ? PARTY_CHAT_GAP_MS_SPARK : PARTY_CHAT_GAP_MS_MAPLE)) {
+        maybePartyChat()
+        lastNudgeAt = now
         return
       }
       lastNudgeAt = now
       lastChatAt = now
-      const line = quietNudge(config.persona, buddy)
+      const line = variedQuietNudge(config.persona, buddy, recentNudgeLines)
       console.log(`[${tag}] quiet nudge -> ${buddy}`)
-      void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (text) => bot.chat(text))
+      void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (text) => chatOut(bot, config, text))
     }, 10_000)
 
     envTimer = setInterval(() => {
@@ -191,14 +352,105 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
       if (!line) return
       lastChatAt = Date.now()
       console.log(`[${tag}] env comment`)
-      void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (text) => bot.chat(text))
-      const target = perception.nearestPlayTarget()
+      void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (text) => chatOut(bot, config, text))
+      // Prefer the human kid over peer companions so bots do not bury each other underground.
+      const human = perception.nearestHuman()
+      const target = human ?? perception.nearestPlayTarget()
       if (target && Math.random() < 0.45) {
         void performIntents(bot, target, [{ type: 'come' }]).catch((error: unknown) => {
           console.error(`[${tag}] env walk: ${error instanceof Error ? error.message : String(error)}`)
         })
       }
     }, ENV_COMMENT_POLL_MS)
+
+    bodyRescueTimer = setInterval(() => {
+      const human = rescueIfBuried(bot, tag)
+      if (!human) return
+      void performIntents(bot, human, [{ type: 'come' }]).catch((error: unknown) => {
+        console.error(`[${tag}] body rescue walk: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    }, 6_000)
+
+    // Keep following the human so GPT Live / chat gaps do not leave Maple frozen beside them.
+    keepFollowTimer = setInterval(() => {
+      const marked = (bot as { mapleHoldStillUntil?: number }).mapleHoldStillUntil ?? 0
+      if (Date.now() < Math.max(holdStillUntil, marked)) return
+      const human = primaryHuman()
+      if (!human) return
+      const me = bot.entity?.position
+      const target = bot.players[human]?.entity?.position
+      if (!me || !target) return
+      const dist = me.distanceTo(target)
+      if (dist < 2.4) return
+      void performIntents(bot, human, [{ type: 'follow' }]).catch((error: unknown) => {
+        console.error(`[${tag}] keep follow: ${error instanceof Error ? error.message : String(error)}`)
+      })
+    }, KEEP_FOLLOW_MS)
+
+    // Party idle chatter: bots keep bantering in chat even when the kid is silent.
+    partyChatTimer = setInterval(() => {
+      maybePartyChat()
+    }, PARTY_CHAT_POLL_MS)
+    // Stagger first party line so Maple/Spark do not speak the same second.
+    setTimeout(maybePartyChat, config.persona === 'spark' ? 8_000 : 4_500)
+
+    idleMoveTimer = setInterval(() => {
+      maybeIdleMove()
+    }, IDLE_MOVE_MS)
+
+    // Self-initiated fun: Maple proposes mini-quests; Spark acts silently when muted.
+    miniQuestTimer = setInterval(() => {
+      const now = Date.now()
+      if (now - lastMiniQuestAt < MINI_QUEST_MS) return
+      const voiceHumanAt = (bot as { mapleHumanChatAt?: number }).mapleHumanChatAt ?? 0
+      const humanAt = Math.max(lastHumanChatAt, voiceHumanAt)
+      if (humanAt > 0 && now - humanAt < 8_000) return
+      if (now - lastChatAt < 12_000) return
+      const kid = primaryHuman()
+      const hint = perception?.situateHint() ?? {}
+      lastMiniQuestAt = now
+      // Spark muted: still wander/look playfully without chat.
+      if (config.persona === 'spark' && !partyIdleChatEnabled()) {
+        const peer = peerOnline()
+        const roll = Math.random()
+        if (roll < 0.4 && kid) void softIdleMove(bot, { comeName: kid }).catch(() => {})
+        else if (roll < 0.7 && peer) void softIdleMove(bot, { comeName: peer }).catch(() => {})
+        else void softIdleMove(bot, { wander: true }).catch(() => {})
+        console.log(`[${tag}] silent play move (spark muted)`)
+        return
+      }
+      const line = proposeMiniQuest(config.persona, kid, hint, recentQuestLines)
+      lastChatAt = now
+      console.log(`[${tag}] mini-quest -> ${kid ?? '(no kid)'}`)
+      void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (text) => chatOut(bot, config, text))
+      if (kid && Math.random() < 0.55) {
+        void softIdleMove(bot, { comeName: kid }).catch(() => {})
+      } else {
+        void softIdleMove(bot, { wander: true }).catch(() => {})
+      }
+    }, 8_000)
+
+    // Situate awareness chat: blocks/mobs/time/what kid did — Maple mostly; Spark rare if unmuted.
+    situateTimer = setInterval(() => {
+      if (!perception) return
+      const now = Date.now()
+      if (now - lastSituateChatAt < SITUATE_CHAT_MS) return
+      const voiceHumanAt = (bot as { mapleHumanChatAt?: number }).mapleHumanChatAt ?? 0
+      if (Math.max(lastHumanChatAt, voiceHumanAt) > 0 && now - Math.max(lastHumanChatAt, voiceHumanAt) < 6_000) return
+      if (config.persona === 'spark' && !partyIdleChatEnabled()) return
+      const kid = primaryHuman()
+      const hint = perception.situateHint()
+      const mem = perception.shortMemorySummary()
+      if (mem) hint.kidLastSaid = hint.kidLastSaid ?? mem.split(' | ').pop()?.replace(/^\d+\.\s*/, '') ?? null
+      const line = situateComment(config.persona, kid, hint, recentSituateLines)
+      if (!line) return
+      // Prefer situate over another dig env spam if we have fresh world bits.
+      if (!hint.nearbyBlock && !hint.nearbyMob && !hint.kidLastDid && !hint.kidLastSaid && hint.time !== 'night') return
+      lastSituateChatAt = now
+      lastChatAt = now
+      console.log(`[${tag}] situate chat`)
+      void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (text) => chatOut(bot, config, text))
+    }, 7_000)
   })
 
   bot.on('playerJoined', (player) => {
@@ -216,7 +468,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     const now = Date.now()
     if (now - lastStuck < 20_000) return
     lastStuck = now
-    void queue.send([STUCK_LINE], (line) => bot.chat(line))
+    void queue.send([STUCK_LINE], (line) => chatOut(bot, config, line))
   })
 
   bot.on('kicked', (reason) => {
@@ -230,6 +482,11 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     if (username.toLowerCase() === bot.username.toLowerCase()) return
     const peer = isCompanionUsername(username)
     if (peer) {
+      // Mute Spark↔Maple cross-talk when PARTY_IDLE_CHAT=0 (keep Maple GPT Live for the kid).
+      if (!partyIdleChatEnabled() && config.persona === 'spark') {
+        console.log(`[${tag}] peer ignore (spark muted): <${username}>`)
+        return
+      }
       const now = Date.now()
       if (!isPeerPlayChat(text, bot.username)) {
         console.log(`[${tag}] peer ignore (not play): <${username}> ${text.slice(0, 60)}`)
@@ -245,6 +502,18 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     }
     if (!recent.firstTime(username, text, Date.now())) return
     lastChatAt = Date.now()
+    if (!peer) {
+      lastHumanChatAt = lastChatAt
+      perception?.rememberKidSaid(text)
+    }
+    // Honor "stay / stop / don't follow" so keep-follow does not immediately re-chase.
+    if (/\b(stop following|wait here|stay here|stay there|stand still|do not follow|don't follow)\b|^stop\b|!stop\b|!wait\b|!stay\b/i.test(text)) {
+      holdStillUntil = Date.now() + HOLD_STILL_MS
+      ;(bot as { mapleHoldStillUntil?: number }).mapleHoldStillUntil = holdStillUntil
+    } else if (/\b(follow me|come here|come with me|lead the way|can you move|move around|help me|dig with me|build with me|build a house|let'?s build a house|give me)\b/i.test(text)) {
+      holdStillUntil = 0
+      ;(bot as { mapleHoldStillUntil?: number }).mapleHoldStillUntil = 0
+    }
     chain = chain
       .then(() =>
         handleMessage(bot, config, state, limiter, queue, username, text, whispered, perception, peer),
@@ -272,6 +541,18 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
       nudgeTimer = null
       if (envTimer) clearInterval(envTimer)
       envTimer = null
+      if (bodyRescueTimer) clearInterval(bodyRescueTimer)
+      bodyRescueTimer = null
+      if (keepFollowTimer) clearInterval(keepFollowTimer)
+      keepFollowTimer = null
+      if (partyChatTimer) clearInterval(partyChatTimer)
+      partyChatTimer = null
+      if (idleMoveTimer) clearInterval(idleMoveTimer)
+      idleMoveTimer = null
+      if (miniQuestTimer) clearInterval(miniQuestTimer)
+      miniQuestTimer = null
+      if (situateTimer) clearInterval(situateTimer)
+      situateTimer = null
       perception?.stop()
       perception = null
       bot.quit()
@@ -323,19 +604,21 @@ async function handleMessage(
 
   console.log(`[${tag}] <${username}${fromPeer ? ' peer' : ''}> ${text}`)
   const intents = parseIntents(text)
-  // Peer play invites: walk toward peer when they say follow/come/race/dig.
+  // Peer play invites: walk toward the kid (preferred) or the peer — avoid burying with peer.
   const peerMove =
     fromPeer && intents.some((i) => i.type === 'follow' || i.type === 'come')
       ? intents.filter((i) => i.type === 'follow' || i.type === 'come')
       : fromPeer && /\b(race|dig|bridge|come|follow|together)\b/i.test(text)
         ? ([{ type: 'come' }] as const)
         : []
+  const walkTarget =
+    fromPeer && peerMove.length > 0 ? (perception?.nearestHuman() ?? username) : username
   const notes =
     text.startsWith('/')
       ? []
       : await performIntents(
           bot,
-          username,
+          walkTarget,
           peerMove.length > 0 ? [...peerMove] : fromPeer ? [] : intents,
         )
   const observations = perception?.recentNotes() ?? []
@@ -361,7 +644,7 @@ async function handleMessage(
     username,
     text: fromPeer ? `[peer ${username}] ${text}` : text,
     world,
-    intents: fromPeer && peerMove.length === 0 ? [{ type: 'chat' }] : intents,
+    intents: fromPeer ? (peerMove.length > 0 ? [...peerMove] : [{ type: 'chat' }]) : intents,
     log: (message) => console.error(`[${tag}] ${message}`),
   })
   console.log(`[${tag}] ${turn.source}: ${turn.reply}`)
@@ -379,7 +662,7 @@ async function deliver(
   const whisper = whispered || config.chatMode === 'whisper'
   await queue.send(lines, (line) => {
     if (whisper) bot.whisper(username, line)
-    else bot.chat(line)
+    else chatOut(bot, config, line)
   })
 }
 
@@ -405,10 +688,15 @@ export async function main(): Promise<void> {
     ? await startJavaVoiceCompanion({ config, getBot: () => current })
     : null
   const voice = loadVoiceConfig()
+  const liveFlag = (process.env.OPENAI_LIVE ?? '').trim().toLowerCase()
+  const gptLive =
+    !['0', 'false', 'no', 'off'].includes(liveFlag) && Boolean(process.env.OPENAI_API_KEY?.trim())
   console.log(
-    voice.enabled
-      ? `[${tag}] Doubao voice is on. Keys stay in this process.`
-      : `[${tag}] Voice off. Set DOUBAO_APP_ID and DOUBAO_ACCESS_KEY. In-game chat still works.`,
+    gptLive
+      ? `[${tag}] GPT Live voice is on (OpenAI Realtime WebRTC). Doubao kept as fallback when OPENAI_LIVE=0.`
+      : voice.enabled
+        ? `[${tag}] Doubao voice is on. Keys stay in this process.`
+        : `[${tag}] Voice off. Set OPENAI_LIVE=1 + OPENAI_API_KEY, or DOUBAO_APP_ID/ACCESS_KEY. In-game chat still works.`,
   )
   if (companion?.url) {
     console.log(`[${tag}] Open the mic window on this computer: ${companion.url}`)
@@ -431,20 +719,28 @@ export async function main(): Promise<void> {
 
   let tries = 0
   while (!shuttingDown) {
+    let handle: CompanionHandle | null = null
     try {
-      const handle = await startCompanion(config, session)
-      current = handle.bot
+      const handleNext = await startCompanion(config, session)
+      handle = handleNext
+      current = handleNext.bot
       tries = 0
       await new Promise<void>((resolve, reject) => {
-        handle.bot.once('end', (reason) => {
+        handleNext.bot.once('end', (reason) => {
           if (shuttingDown) resolve()
           else reject(new Error(reason || 'disconnected'))
         })
       })
     } catch (error) {
-      if (shuttingDown) return
+      if (shuttingDown) {
+        handle?.stop()
+        return
+      }
       console.error(`[${tag}] ${error instanceof Error ? error.message : String(error)}`)
     }
+    // Always clear timers from this session before reconnecting (fixes zombie peer-invite spam).
+    handle?.stop()
+    if (!shuttingDown) current = null
     if (shuttingDown) return
     tries += 1
     if (tries > config.reconnects) {

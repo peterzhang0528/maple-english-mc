@@ -19,13 +19,13 @@ export function mapleToolSchema(): Record<string, unknown> {
     type: 'function',
     name: MAPLE_TOOL_NAME,
     description:
-      'Move Maple or teach a real Minecraft crafting recipe or block. Call this when the player asks to follow, come here, stop, wait, look, inspect a block, or craft/make an item.',
+      'Move Maple or teach a real Minecraft crafting recipe or block. Call this when the player asks to follow, come here, stop, wait, look, dig, build, build a house, give, help, inspect a block, or craft/make an item.',
     parameters: {
       type: 'object',
       properties: {
         action: {
           type: 'string',
-          enum: ['follow', 'come', 'stop', 'look', 'inspect_block', 'craft'],
+          enum: ['follow', 'come', 'stop', 'look', 'inspect_block', 'dig', 'build', 'build_house', 'give', 'assist', 'craft'],
           description: 'What Maple should do.',
         },
         item: {
