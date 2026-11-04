@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Verity 叙事分镜 · 口语打卡 mid-chain</title>
+  <style>
+    :root {
+      --bg: #111;
+      --panel: #1a1a1a;
+      --border: #333;
+      --text: #eee;
+      --muted: #999;
+      --accent: #e8c547;
+      --accent2: #c44;
+      --accent3: #e8a030;
+      --accent4: #7ec85a;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      margin: 0;
+      padding: 1.5rem;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    h1 { font-size: 1.25rem; font-weight: 600; margin: 0 0 0.5rem; }
+    h2 { font-size: 1.05rem; font-weight: 600; margin: 1.5rem 0 0.75rem; color: #ddd; }
+    .lead { color: #bbb; max-width: 44rem; line-height: 1.55; margin: 0 0 1.25rem; font-size: 0.95rem; }
+    .ask {
+      max-width: 44rem;
+      padding: 0.85rem 1rem;
+      border-left: 3px solid var(--accent);
+      background: #1a1810;
+      color: #e8d9a0;
+      font-size: 0.95rem;
+      line-height: 1.55;
+      border-radius: 0 8px 8px 0;
+      margin-bottom: 1.25rem;
+    }
+    .stage {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      max-width: 44rem;
+    }
+    .frame {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      align-items: center;
+    }
+    .portrait {
+      width: 200px;
+      height: 200px;
+      image-rendering: pixelated;
+      background: #222;
+      border-radius: 10px;
+      border: 2px solid var(--border);
+      object-fit: contain;
+    }
+    .caption-block { flex: 1; min-width: 12rem; }
+    .step-badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 0.35rem;
+    }
+    .step-title { font-size: 1.15rem; font-weight: 600; margin: 0 0 0.5rem; }
+    .step-body { color: #bbb; line-height: 1.55; margin: 0; font-size: 0.95rem; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1.1rem;
+      align-items: center;
+    }
+    button {
+      font: inherit;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: #252525;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 0.45rem 0.9rem;
+    }
+    button:hover { background: #303030; }
+    button.primary { background: #2a3a1a; border-color: #3d5a28; color: #cfe9b8; }
+    button.primary:hover { background: #334822; }
+    .dots { display: flex; gap: 0.4rem; margin-left: auto; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #444; }
+    .dot.active { background: var(--accent); }
+    .timeline {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-top: 1rem;
+      max-width: 44rem;
+    }
+    .chip {
+      font-size: 0.8rem;
+      padding: 0.3rem 0.65rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      background: #181818;
+      cursor: pointer;
+    }
+    .chip.active { color: var(--text); border-color: #555; background: #242424; }
+    .chip:hover { border-color: #666; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      max-width: 44rem;
+      font-size: 0.9rem;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 0.55rem 0.65rem;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #1e1e1e; color: #ccc; font-weight: 600; }
+    .unclear { color: #e8a030; }
+    .warn {
+      max-width: 44rem;
+      margin-top: 1.25rem;
+      padding: 0.75rem 1rem;
+      border-left: 3px solid var(--accent2);
+      background: #1a1212;
+      color: #ddb;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      border-radius: 0 8px 8px 0;
+    }
+    .note {
+      color: var(--muted);
+      font-size: 0.85rem;
+      margin-top: 1.25rem;
+      max-width: 44rem;
+      line-height: 1.5;
+    }
+    code {
+      font-size: 0.8em;
+      background: #1e1e1e;
+      padding: 0.1em 0.35em;
+      border-radius: 4px;
+    }
+
+    .say-box {
+      margin-top: 0.85rem;
+      padding: 0.55rem 0.75rem;
+      border-radius: 8px;
+      background: #141c14;
+      border: 1px solid #2a3a28;
+    }
+    .say-label { font-size: 0.7rem; letter-spacing: 0.04em; color: #8aaa7a; margin-bottom: 0.2rem; }
+    .say-line { font-size: 1.05rem; font-weight: 600; color: #d8f0c8; margin: 0; }
+    .parent-box {
+      margin-top: 0.5rem;
+      font-size: 0.85rem;
+      color: #c9b88a;
+      line-height: 1.45;
+    }
+
+    button.ghost { background: transparent; color: #aaa; font-size: 0.85rem; padding: 0.35rem 0.7rem; }
+    button.stamp-btn { background: #1a2a3a; border-color: #3a5a7a; color: #b8d4f0; }
+    button.stamp-btn:hover { background: #243448; }
+    button.stamp-btn.done { background: #1a2a1a; border-color: #3d5a28; color: #cfe9b8; }
+    button.copy-btn { background: #1a2a3a; border-color: #3a5a7a; color: #b8d4f0; }
+    button.copy-btn:hover { background: #243448; }
+    button.copy-btn.copied { background: #1a2a1a; border-color: #3d5a28; color: #cfe9b8; }
+    .chip.stamped::after { content: " ✓"; color: #8ecf6a; font-weight: 700; }
+    .say-actions {
+      display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 0.55rem; align-items: center;
+    }
+    .stamp-status { font-size: 0.85rem; color: #8899aa; }
+    .stamp-status.done { color: #8ecf6a; font-weight: 600; }
+    .oral-progress {
+      display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem;
+      max-width: 44rem; margin: 0 0 1rem; padding: 0.45rem 0.85rem;
+      background: #141820; border: 1px solid #2a3548; border-radius: 8px;
+      font-size: 0.85rem; color: #a8b8c8;
+    }
+    .oral-progress-label { font-weight: 600; color: #cfe0f0; }
+    .oral-markers { display: flex; gap: 0.35rem; align-items: center; }
+    .oral-marker {
+      width: 14px; height: 14px; border-radius: 50%;
+      border: 1.5px solid #4a5568; background: #1a2030;
+      display: inline-flex; align-items: center; justify-content: center;
+      font-size: 0.65rem; line-height: 1; color: transparent;
+    }
+    .oral-marker.on { border-color: #3d5a28; background: #1a2a1a; color: #8ecf6a; font-weight: 700; }
+    .parent-card-panel {
+      display: none; max-width: 44rem; margin-top: 1.25rem; padding: 1.1rem 1.25rem;
+      background: #0c0e14; border: 1px solid #3a4560; border-radius: 12px;
+    }
+    .parent-card-panel.visible { display: block; }
+    .parent-card-panel h3 { margin: 0 0 0.75rem; font-size: 1.05rem; color: #e8c547; font-weight: 600; }
+    .parent-card-panel ul { list-style: none; margin: 0 0 0.75rem; padding: 0; }
+    .parent-card-panel li { padding: 0.28rem 0; color: #cfe0f0; font-size: 0.92rem; }
+    .parent-card-panel li::before { content: "✓ "; color: #8ecf6a; font-weight: 700; }
+    .parent-card-summary { color: #b8d4f0; font-size: 0.95rem; margin: 0 0 0.5rem; font-weight: 600; }
+    .parent-card-note { color: #8899aa; font-size: 0.8rem; margin: 0 0 0.9rem; line-height: 1.45; }
+    .parent-card-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  </style>
+</head>
+<body>
+  <h1>Verity 叙事分镜 · 口语里程碑</h1>
+  <p class="lead">
+    五步链：你的脸 → 可爱 Verity → 恐怖脸 → friend → friend-2。
+    图片已内嵌，无需联网或 Minecraft。每步有一句英语跟读 +「我说了！」打卡；口语进度 N/5；打卡后出现家长面板与企微复制（里程碑，不是成绩）。file:// 可离线打开。
+  </p>
+
+  <div class="ask">
+    <strong>专名占位：</strong>确认前程序侧只用 <code>friend</code> / <code>friend-2</code>；
+    <span class="unclear">Lavity</span> / <span class="unclear">Vocity</span> 仍 [unclear]，勿当官方名写入对外文案。
+    企微确认单文件见仓库外 <code>cecilia-meeting/share-for-cecilia.html</code> / <code>confirm-for-cecilia.html</code>。
+  </div>
+
+<div class="oral-progress" id="oral-progress" aria-live="polite">
+    <span class="oral-progress-label" id="oral-progress-label">口语进度 0/5</span>
+    <div class="oral-markers" id="oral-markers" aria-hidden="true"></div>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="frame">
+      <img id="portrait" class="portrait" alt="当前形态预览" width="200" height="200" />
+      <div class="caption-block">
+        <div class="step-badge" id="badge">步骤 1 / 5</div>
+        <h2 class="step-title" id="title" style="margin:0 0 0.5rem">你的脸</h2>
+        <p class="step-body" id="body">连锁起点：玩家本人脸（演示用合成脸；实机可换真照片进管线）。</p>
+        <div class="say-box">
+          <div class="say-label">跟读 · Say with me</div>
+          <p class="say-line" id="say-line">Look! This is my face.</p>
+          <div class="say-actions">
+            <button type="button" class="stamp-btn" id="btn-stamp">我说了！</button>
+            <span class="stamp-status" id="stamp-status"></span>
+          </div>
+        </div>
+        <div class="parent-box" id="parent-box"><strong>家长一眼：</strong><span id="parent-line">孩子认出「这是我的脸」</span></div>
+      </div>
+    </div>
+    <div class="controls">
+      <button type="button" class="primary" id="btn-play">自动播放</button>
+      <button type="button" id="btn-next">下一步</button>
+      <button type="button" id="btn-replay">重播</button>
+      <button type="button" class="ghost" id="btn-clear-stamps">清除打卡</button>
+      <div class="dots" id="dots" aria-hidden="true"></div>
+    </div>
+  </div>
+  <div class="timeline" id="timeline" role="tablist" aria-label="分镜步骤"></div>
+
+  <div class="parent-card-panel" id="parent-card-panel" aria-live="polite">
+    <h3 id="parent-card-title">今天达成 · Verity 里程碑 0/5</h3>
+    <ul id="parent-card-list"></ul>
+    <p class="parent-card-summary" id="parent-card-summary">孩子跟读了 0 句英语</p>
+    <p class="parent-card-note">朋友专名仍用 friend / friend-2 占位，待 Cecilia 确认后再替换。· 里程碑不是成绩</p>
+    <div class="parent-card-actions">
+      <button type="button" class="primary" id="btn-download-card">下载家长卡 PNG</button>
+      <button type="button" class="copy-btn" id="btn-copy-wecom">复制企微进度</button>
+      <button type="button" class="ghost" id="btn-clear-stamps-2">清除打卡</button>
+    </div>
+  </div>
+
+  <p class="note">
+    仓库分镜页（file:// 可开）。逻辑自 <code>cecilia-meeting/share-for-cecilia.html</code> mid-chain 抽出（口语打卡 localStorage <code>verityOralStamps</code> · 家长面板 N≥1 · 家长卡 PNG ·「复制企微进度」）。
+    数据包 <strong>v2.5</strong>：<code>/function verity:progressive/stamp_demo</code> 演示一键打满（Cecilia/Peter，非孩子玩法）+ wecom_plain。
+    face-tryon.html 仍缺失，见同目录 README。friend / friend-2 占位；Lavity/Vocity 仍 [unclear]。网易 / Windows / Paper live 仍阻塞。更新 <strong>2026-11-03</strong> Asia/Shanghai。
+  </p>
+
+  <script>
+(function () {
+      var STEPS = [
+  {
+    "img": "data:image/png;base64,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",
+    "badge": "里程碑 1/5 · 你的脸",
+    "title": "你的脸",
+    "body": "连锁起点：玩家本人的脸。会议原话倾向「先做一个我的脸」——再做成 Verity 风格。本页用合成演示脸占位。",
+    "accent": "#7eb8e8",
+    "say": "Look! This is my face.",
+    "parent": "孩子认出「这是我的脸」",
+    "milestoneShort": "你的脸 · Look! This is my face."
+  },
+  {
+    "img": "data:image/png;base64,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gBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQc6x1WdMjAAB4Py6AAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAzD/Lni21JRngPwAAAABJRU5ErkJggg==",
+    "badge": "里程碑 2/5 · 可爱 Verity",
+    "title": "做成可爱 Verity",
+    "body": "脸贴到经典 64×64 头正面 UV，套可爱黄笑脸身体模板。亲切、好认，是惊吓前的对照。",
+    "accent": "#e8c547",
+    "say": "Cute Verity! Say hi!",
+    "parent": "孩子看到可爱变身",
+    "milestoneShort": "可爱 Verity · Cute Verity! Say hi!"
+  },
+  {
+    "img": "data:image/png;base64,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ECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAICYzW5ZDtMjAAD4OC6AAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAzDtwWSYedCwYcgAAAABJRU5ErkJggg==",
+    "badge": "里程碑 3/5 · 恐怖脸",
+    "title": "翻成恐怖脸",
+    "body": "同一张脸去饱和、变暗、红调，再套恐怖身体模板。惊吓转折，为朋友到来铺垫。",
+    "accent": "#c44",
+    "say": "Oh no… scary face!",
+    "parent": "孩子感到惊吓转折",
+    "milestoneShort": "恐怖脸 · Oh no… scary face!"
+  },
+  {
+    "img": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAoAAAAKACAYAAAAMzckjAAAGS0lEQVR4nO3BAQ0AAADCoPdPbQ8HFAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMC3AQP3AAEe8QKtAAAAAElFTkSuQmCC",
+    "badge": "里程碑 4/5 · friend（占位）",
+    "title": "朋友到来",
+    "body": "第二具身体出现（标签仅写 friend）。专名待 Cecilia 确认，勿当官方名。",
+    "accent": "#e8a030",
+    "say": "A friend is here!",
+    "parent": "朋友登场（专名待确认）",
+    "milestoneShort": "friend（占位）· A friend is here!"
+  },
+  {
+    "img": "data:image/png;base64,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AGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAEDM5nD/YDc9YmU3r9+bngAA8E98AAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgJjNr8OD3fSIlf38uj89AQDgn/gAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMdvdZjO9AQCA/8gHEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiBGAAAAxAhAAIEYAAgDECEAAgBgBCAAQIwABAGIEIABAjAAEAIgRgAAAMQIQACBGAAIAxAhAAIAYAQgAECMAAQBiBCAAQIwABACIEYAAADECEAAgRgACAMQIQACAGAEIABAjAAEAYgQgAECMAAQAiPkLhfkw6sh4l8MAAAAASUVORK5CYII=",
+    "badge": "里程碑 5/5 · friend-2（占位）",
+    "title": "朋友带来朋友",
+    "body": "连锁收束：friend 再带来 friend-2。色调区分占位；确认专名后再替换皮肤与文案。",
+    "accent": "#7ec85a",
+    "say": "Another friend! We did it!",
+    "parent": "连锁完成 · 可见里程碑 5/5",
+    "milestoneShort": "friend-2（占位）· Another friend! We did it!"
+  }
+];
+
+      var idx = 0;
+      var timer = null;
+      var AUTO_MS = 2800;
+      var ORAL_KEY = "verityOralStamps";
+
+      function defaultStamps() {
+        return [false, false, false, false, false];
+      }
+
+      function readStamps() {
+        try {
+          var raw = localStorage.getItem(ORAL_KEY);
+          if (!raw) return defaultStamps();
+          var o = JSON.parse(raw);
+          if (Array.isArray(o) && o.length === 5) {
+            return o.map(function (v) { return !!v; });
+          }
+          if (o && typeof o === "object") {
+            var arr = defaultStamps();
+            for (var i = 0; i < 5; i++) {
+              if (o[i] || o[String(i)]) arr[i] = true;
+            }
+            return arr;
+          }
+        } catch (e) {}
+        return defaultStamps();
+      }
+
+      function writeStamps(arr) {
+        try {
+          localStorage.setItem(ORAL_KEY, JSON.stringify(arr));
+        } catch (e) {}
+      }
+
+      var stamps = readStamps();
+
+      function stampedCount() {
+        var n = 0;
+        for (var i = 0; i < stamps.length; i++) if (stamps[i]) n++;
+        return n;
+      }
+
+      var portrait = document.getElementById("portrait");
+      var badge = document.getElementById("badge");
+      var title = document.getElementById("title");
+      var body = document.getElementById("body");
+      var sayLine = document.getElementById("say-line");
+      var parentLine = document.getElementById("parent-line");
+      var dots = document.getElementById("dots");
+      var timeline = document.getElementById("timeline");
+      var btnPlay = document.getElementById("btn-play");
+      var btnNext = document.getElementById("btn-next");
+      var btnReplay = document.getElementById("btn-replay");
+      var btnStamp = document.getElementById("btn-stamp");
+      var stampStatus = document.getElementById("stamp-status");
+      var parentCardPanel = document.getElementById("parent-card-panel");
+      var parentCardList = document.getElementById("parent-card-list");
+      var parentCardTitle = document.getElementById("parent-card-title");
+      var parentCardSummary = document.getElementById("parent-card-summary");
+      var btnDownloadCard = document.getElementById("btn-download-card");
+      var btnCopyWecom = document.getElementById("btn-copy-wecom");
+      var btnClearStamps = document.getElementById("btn-clear-stamps");
+      var btnClearStamps2 = document.getElementById("btn-clear-stamps-2");
+      var oralProgressLabel = document.getElementById("oral-progress-label");
+      var oralMarkers = document.getElementById("oral-markers");
+
+      if (oralMarkers && !oralMarkers.children.length) {
+        for (var mi = 0; mi < 5; mi++) {
+          var m = document.createElement("span");
+          m.className = "oral-marker";
+          m.setAttribute("data-i", String(mi));
+          m.textContent = "✓";
+          oralMarkers.appendChild(m);
+        }
+      }
+
+      function stopAuto() {
+        if (timer) { clearInterval(timer); timer = null; }
+        btnPlay.textContent = "自动播放";
+      }
+
+      function updateOralStrip() {
+        var n = stampedCount();
+        if (oralProgressLabel) oralProgressLabel.textContent = "口语进度 " + n + "/5";
+        if (oralMarkers) {
+          Array.prototype.forEach.call(oralMarkers.children, function (el, j) {
+            el.classList.toggle("on", !!stamps[j]);
+          });
+        }
+      }
+
+      function updateParentCard() {
+        var n = stampedCount();
+        var show = n >= 1;
+        if (!parentCardPanel) return;
+        parentCardPanel.classList.toggle("visible", show);
+        updateOralStrip();
+        if (!show || !parentCardList) return;
+        if (parentCardTitle) parentCardTitle.textContent = "今天达成 · Verity 里程碑 " + n + "/5";
+        if (parentCardSummary) parentCardSummary.textContent = "孩子跟读了 " + n + " 句英语";
+        parentCardList.innerHTML = "";
+        STEPS.forEach(function (s, i) {
+          if (!stamps[i]) return;
+          var li = document.createElement("li");
+          li.textContent = (i + 1) + ". " + (s.milestoneShort || s.title);
+          parentCardList.appendChild(li);
+        });
+      }
+
+      function updateStampUI() {
+        var stamped = !!stamps[idx];
+        if (stampStatus) {
+          stampStatus.textContent = stamped ? "✓ 已跟读" : "";
+          stampStatus.classList.toggle("done", stamped);
+        }
+        if (btnStamp) {
+          btnStamp.textContent = stamped ? "已打卡" : "我说了！";
+          btnStamp.classList.toggle("done", stamped);
+        }
+        Array.prototype.forEach.call(timeline.children, function (el, j) {
+          el.classList.toggle("stamped", !!stamps[j]);
+        });
+        updateParentCard();
+      }
+
+      function render(i) {
+        idx = ((i % STEPS.length) + STEPS.length) % STEPS.length;
+        var s = STEPS[idx];
+        portrait.src = s.img;
+        portrait.alt = s.title;
+        badge.textContent = s.badge;
+        title.textContent = s.title;
+        title.style.color = s.accent;
+        body.textContent = s.body;
+        if (sayLine) sayLine.textContent = s.say || "";
+        if (parentLine) parentLine.textContent = s.parent || "";
+        Array.prototype.forEach.call(dots.children, function (el, j) {
+          el.classList.toggle("active", j === idx);
+        });
+        Array.prototype.forEach.call(timeline.children, function (el, j) {
+          el.classList.toggle("active", j === idx);
+        });
+        updateStampUI();
+      }
+
+      function next() { render(idx + 1); }
+
+      function clearStamps() {
+        stamps = defaultStamps();
+        writeStamps(stamps);
+        updateStampUI();
+      }
+
+      function downloadParentCard() {
+        var n = stampedCount();
+        var W = 720, H = 900;
+        var canvas = document.createElement("canvas");
+        canvas.width = W;
+        canvas.height = H;
+        var ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.fillStyle = "#0c0e14";
+        ctx.fillRect(0, 0, W, H);
+        ctx.strokeStyle = "#3a4560";
+        ctx.lineWidth = 3;
+        ctx.strokeRect(18, 18, W - 36, H - 36);
+        ctx.fillStyle = "#e8c547";
+        ctx.fillRect(18, 18, W - 36, 6);
+        var fontStack = 'system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif';
+        ctx.fillStyle = "#e8c547";
+        ctx.font = "bold 32px " + fontStack;
+        ctx.fillText("今天达成 · Verity 里程碑 " + n + "/5", 48, 90);
+        ctx.fillStyle = "#8899aa";
+        ctx.font = "18px " + fontStack;
+        ctx.fillText("口语打卡 · 家长正反馈卡", 48, 128);
+        var y = 180;
+        STEPS.forEach(function (s, i) {
+          var done = !!stamps[i];
+          ctx.fillStyle = done ? "#8ecf6a" : "#556677";
+          ctx.font = "bold 22px " + fontStack;
+          ctx.fillText(done ? "✓" : "○", 48, y);
+          ctx.fillStyle = done ? "#cfe0f0" : "#6a7a8a";
+          ctx.font = "20px " + fontStack;
+          var line = (i + 1) + ". " + (s.milestoneShort || s.title);
+          if (line.length > 36) {
+            var mid = line.lastIndexOf("·", 40);
+            if (mid < 0) mid = 36;
+            ctx.fillText(line.slice(0, mid + 1).trim(), 78, y);
+            y += 28;
+            ctx.fillText(line.slice(mid + 1).trim(), 78, y);
+          } else {
+            ctx.fillText(line, 78, y);
+          }
+          y += 48;
+        });
+        y += 20;
+        ctx.fillStyle = "#b8d4f0";
+        ctx.font = "bold 24px " + fontStack;
+        ctx.fillText("孩子跟读了 " + n + " 句英语", 48, y);
+        y += 48;
+        ctx.fillStyle = "#8899aa";
+        ctx.font = "16px " + fontStack;
+        ctx.fillText("朋友专名仍用 friend / friend-2 占位，", 48, y);
+        y += 26;
+        ctx.fillText("待 Cecilia 确认后再替换。", 48, y);
+        y += 50;
+        ctx.fillStyle = "#555";
+        ctx.font = "14px " + fontStack;
+        ctx.fillText("Verity 叙事分镜 · 里程碑不是成绩", 48, y);
+        try {
+          var a = document.createElement("a");
+          a.href = canvas.toDataURL("image/png");
+          a.download = n >= 5 ? "verity-parent-card.png" : "verity-parent-card-" + n + "of5.png";
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        } catch (e) {
+          try { window.open(canvas.toDataURL("image/png"), "_blank"); } catch (e2) {}
+        }
+      }
+
+      function buildWecomProgressText() {
+        var n = stampedCount();
+        var lines = [];
+        lines.push("【Verity 口语里程碑】今天 " + n + "/5");
+        STEPS.forEach(function (s, i) {
+          if (stamps[i]) lines.push("✓ " + (i + 1) + ". " + (s.milestoneShort || s.title));
+        });
+        if (n > 0 && n < 5) {
+          STEPS.forEach(function (s, i) {
+            if (!stamps[i]) lines.push("○ " + (i + 1) + ". " + (s.milestoneShort || s.title));
+          });
+        }
+        lines.push("孩子跟读了 " + n + " 句英语 · 里程碑不是成绩");
+        lines.push("朋友专名仍用 friend / friend-2 占位");
+        return lines.join("\n");
+      }
+
+      function copyTextFallback(str) {
+        var ta = document.createElement("textarea");
+        ta.value = str;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, str.length);
+        var ok = false;
+        try { ok = document.execCommand("copy"); } catch (e) {}
+        document.body.removeChild(ta);
+        return ok;
+      }
+
+      function copyWecomProgress() {
+        var str = buildWecomProgressText();
+        var done = function () {
+          if (!btnCopyWecom) return;
+          var prev = btnCopyWecom.textContent;
+          btnCopyWecom.textContent = "已复制";
+          btnCopyWecom.classList.add("copied");
+          setTimeout(function () {
+            btnCopyWecom.textContent = prev || "复制企微进度";
+            btnCopyWecom.classList.remove("copied");
+          }, 1500);
+        };
+        if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+          navigator.clipboard.writeText(str).then(done).catch(function () {
+            if (copyTextFallback(str)) done();
+          });
+        } else {
+          if (copyTextFallback(str)) done();
+        }
+      }
+
+      STEPS.forEach(function (s, j) {
+        var d = document.createElement("span");
+        d.className = "dot" + (j === 0 ? " active" : "");
+        dots.appendChild(d);
+
+        var chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip" + (j === 0 ? " active" : "");
+        chip.textContent = (j + 1) + ". " + s.title;
+        chip.addEventListener("click", function () { stopAuto(); render(j); });
+        timeline.appendChild(chip);
+      });
+
+      btnNext.addEventListener("click", function () { stopAuto(); next(); });
+      btnReplay.addEventListener("click", function () { stopAuto(); render(0); });
+      btnPlay.addEventListener("click", function () {
+        if (timer) { stopAuto(); return; }
+        btnPlay.textContent = "暂停";
+        timer = setInterval(next, AUTO_MS);
+      });
+
+      if (btnStamp) {
+        btnStamp.addEventListener("click", function () {
+          stamps[idx] = true;
+          writeStamps(stamps);
+          updateStampUI();
+        });
+      }
+      if (btnDownloadCard) btnDownloadCard.addEventListener("click", downloadParentCard);
+      if (btnCopyWecom) btnCopyWecom.addEventListener("click", copyWecomProgress);
+      function onClear() { stopAuto(); clearStamps(); }
+      if (btnClearStamps) btnClearStamps.addEventListener("click", onClear);
+      if (btnClearStamps2) btnClearStamps2.addEventListener("click", onClear);
+
+      render(0);
+      // Do not auto-start; let Cecilia browse + stamp at her pace
+    })();
+  </script>
+</body>
+</html>

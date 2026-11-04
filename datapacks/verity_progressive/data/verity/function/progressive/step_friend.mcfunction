@@ -1,0 +1,7 @@
+# Verity progressive v2.3 — oral stamp click after Say
+# Placeholder label "friend" — do not rename to Lavity/Vocity until Cecilia confirms.
+execute as @a[tag=verity_demo_runner,limit=1] at @s run summon armor_stand ~2 ~ ~2 {CustomName:'{"text":"friend","color":"gold"}',CustomNameVisible:1b,NoGravity:1b,ShowArms:1b,NoBasePlate:1b,Tags:["verity_demo","verity_friend","verity_friend_1"],ArmorItems:[{},{},{},{id:"minecraft:player_head",count:1,components:{"minecraft:profile":{properties:[{name:"textures",value:"ewogICJ0aW1lc3RhbXAiIDogMTc4MTQzMDkzOTUyMywKICAicHJvZmlsZUlkIiA6ICI1MzgyNzM1OGIzOTc0ZmJiOTg0OTY5MWM5Yzg3NTA1YiIsCiAgInByb2ZpbGVOYW1lIiA6ICJPdmVyQmlnYm95MTIzIiwKICAic2lnbmF0dXJlUmVxdWlyZWQiIDogdHJ1ZSwKICAidGV4dHVyZXMiIDogewogICAgIlNLSU4iIDogewogICAgICAidXJsIiA6ICJodHRwOi8vdGV4dHVyZXMubWluZWNyYWZ0Lm5ldC90ZXh0dXJlLzRkNDg0MTlkMzI3M2E1ZDdjNjYzYmZmMzY5NTkxMDJlNjFlZjMyZWZkZmVjNjIwM2NkNTNmNWUxYmQ4MWQwNDEiCiAgICB9CiAgfQp9"}]}}}]}
+tellraw @a[tag=verity_demo_runner] [{"text":"[Verity] ","color":"gold"},{"text":"里程碑 4/5 friend（占位 · 可爱头颅）","color":"white"}]
+tellraw @a[tag=verity_demo_runner] [{"text":"  Say: ","color":"gray"},{"text":"A friend is here!","color":"gold","italic":true}]
+tellraw @a[tag=verity_demo_runner] [{"text":"  ","color":"white"},{"text":"[我说了!]","color":"green","bold":true,"clickEvent":{"action":"run_command","value":"/function verity:progressive/stamp_4"},"hoverEvent":{"action":"show_text","contents":{"text":"跟读打卡 · 需 op/权限跑 /function","color":"gray"}}}]
+schedule function verity:progressive/step_friend2 60t

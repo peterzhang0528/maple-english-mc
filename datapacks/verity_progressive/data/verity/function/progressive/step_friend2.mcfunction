@@ -1,0 +1,8 @@
+# Verity progressive v2.3 — oral stamp click after Say
+# Placeholder label "friend-2" — not an official name.
+execute as @a[tag=verity_demo_runner,limit=1] at @s run summon armor_stand ~-2 ~ ~2 {CustomName:'{"text":"friend-2","color":"green"}',CustomNameVisible:1b,NoGravity:1b,ShowArms:1b,NoBasePlate:1b,Tags:["verity_demo","verity_friend","verity_friend_2"],ArmorItems:[{},{},{},{id:"minecraft:player_head",count:1,components:{"minecraft:profile":{properties:[{name:"textures",value:"ewogICJ0aW1lc3RhbXAiIDogMTc5MjI5MjI2MTgwMiwKICAicHJvZmlsZUlkIiA6ICI0OThjYTc2ZGYwODM0NzhmOGY0NjdjOGY1OTQwMjk1MiIsCiAgInByb2ZpbGVOYW1lIiA6ICJHdWx0cm8iLAogICJzaWduYXR1cmVSZXF1aXJlZCIgOiB0cnVlLAogICJ0ZXh0dXJlcyIgOiB7CiAgICAiU0tJTiIgOiB7CiAgICAgICJ1cmwiIDogImh0dHA6Ly90ZXh0dXJlcy5taW5lY3JhZnQubmV0L3RleHR1cmUvMzJlNjY3Nzg0NDMzMWM4MmFjYTdkZTFkOWZkZGJkZjJmOThkMWIwYzNhN2FiYzg5ZjNkZTY2OGVkM2U4NDViNSIKICAgIH0KICB9Cn0="}]}}}]}
+tellraw @a[tag=verity_demo_runner] [{"text":"[Verity] ","color":"green"},{"text":"里程碑 5/5 friend-2（占位 · 恐怖头颅）— 链结束","color":"white"}]
+tellraw @a[tag=verity_demo_runner] [{"text":"  Say: ","color":"gray"},{"text":"Another friend! We did it!","color":"green","italic":true}]
+tellraw @a[tag=verity_demo_runner] [{"text":"  ","color":"white"},{"text":"[我说了!]","color":"green","bold":true,"clickEvent":{"action":"run_command","value":"/function verity:progressive/stamp_5"},"hoverEvent":{"action":"show_text","contents":{"text":"跟读打卡 · 需 op/权限跑 /function","color":"gray"}}}]
+tellraw @a[tag=verity_demo_runner] [{"text":"[Verity] ","color":"gray"},{"text":"清理: /function verity:progressive/cleanup","color":"gray"}]
+tellraw @a[tag=verity_demo_runner] [{"text":"[Verity] ","color":"gray"},{"text":"家长汇总: /function verity:progressive/oral_summary","color":"gray"}]
