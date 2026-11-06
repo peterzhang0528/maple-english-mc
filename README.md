@@ -65,6 +65,10 @@ In the Minecraft client, add a server at `127.0.0.1:25565` and join. Offline mod
 
 Leave `ANTHROPIC_API_KEY` empty the first time. Maple still answers. Add the key when you want Claude Opus 5.5.
 
+## Wash-hands quest
+
+Off unless you set `HANDWASH_QUEST=1` or `QUEST=handwash`. Maple then teaches one tiny routine and will not say the next line until the kid does the step: walk to water, stay about four seconds, then `Good job! Clean hands!` How to join `127.0.0.1:25565` and what each step expects: [docs/handwash-quest.md](docs/handwash-quest.md).
+
 Try the same conversation without a game:
 
 ```bash
@@ -127,6 +131,7 @@ Copy `.env.example` to `.env`. Nothing secret is hardcoded.
 | `MC_VERSION` | `1.21.4` | Protocol version, or `auto` |
 | `MC_PLAYER` | empty | If set, Maple only answers these names (comma-separated). Set this on a public server |
 | `MC_GREET` | `true` | Say hello on join |
+| `HANDWASH_QUEST` | off | `1` turns on the gated wash-hands tutorial. `QUEST=handwash` does the same. See [docs/handwash-quest.md](docs/handwash-quest.md) |
 | `CHAT_MODE` | `chat` | `chat` talks to everyone nearby. `whisper` uses `/tell` |
 | `CHAT_MAX_LINE_CHARS` | `180` | Minecraft allows 256. Shorter lines are easier to read |
 | `CHAT_MAX_LINES` | `3` | Most replies are cut after this many lines |
@@ -361,6 +366,10 @@ npm start         # 终端 2：Maple 进入游戏
 
 第一次可以把 `ANTHROPIC_API_KEY` 留空，Maple 仍会回答。需要 Claude Opus 5.5 时再填上 key。
 
+## 洗手教程
+
+默认关闭。设置 `HANDWASH_QUEST=1` 或 `QUEST=handwash` 后，Maple 只教一件小事，而且没做完当前一步就不会说下一句：走到水边，站大约 4 秒，然后说 `Good job! Clean hands!`。怎么进 `127.0.0.1:25565`、每一步要做什么，见 [docs/handwash-quest.md](docs/handwash-quest.md)。
+
 不启动游戏也可以看同一段练习：
 
 ```bash
@@ -423,6 +432,7 @@ MC_USERNAME=your.email@example.com
 | `MC_VERSION` | `1.21.4` | 协议版本，或 `auto` |
 | `MC_PLAYER` | 空 | 若填写，Maple 只回复这些玩家（逗号分隔）。公共服务器请一定要填 |
 | `MC_GREET` | `true` | 进入游戏时打招呼 |
+| `HANDWASH_QUEST` | 关 | 设为 `1` 时开启洗手教程。`QUEST=handwash` 同样。见 [docs/handwash-quest.md](docs/handwash-quest.md) |
 | `CHAT_MODE` | `chat` | `chat` 是附近都能看见的公聊。`whisper` 使用 `/tell` |
 | `CHAT_MAX_LINE_CHARS` | `180` | 游戏上限是 256。短一点更好读 |
 | `CHAT_MAX_LINES` | `3` | 一条回复最多这么多行 |

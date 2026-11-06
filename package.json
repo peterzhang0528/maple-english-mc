@@ -16,7 +16,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "server": "bash scripts/start-local-server.sh",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/intents.test.ts test/limiter.test.ts test/perception.test.ts test/recipes.test.ts test/split.test.ts test/turn.test.ts test/voice.test.ts test/fun.test.ts test/voiceCompanion.test.ts test/web.test.ts test/rooms.test.ts",
+    "test": "tsx --test test/intents.test.ts test/limiter.test.ts test/perception.test.ts test/recipes.test.ts test/split.test.ts test/turn.test.ts test/voice.test.ts test/fun.test.ts test/voiceCompanion.test.ts test/web.test.ts test/rooms.test.ts test/handwash.test.ts",
     "check": "npm run typecheck && npm test",
     "start:spark": "VOICE_COMPANION=0 MC_USERNAME=Spark COMPANION_PERSONA=spark tsx src/index.ts",
     "start:duo": "bash scripts/start-duo.sh"
