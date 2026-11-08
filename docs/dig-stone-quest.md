@@ -27,19 +27,31 @@ QUEST=digStone
 3. In Minecraft Java, add a server at `127.0.0.1:25565` and join. Offline mode accepts any username.
 4. The microphone page is optional. The quest advances from blocks, not from speech.
 
-Maple says `Find some stone.` and follows you. Dig down through dirt until stone is showing beside you (the block under your feet counts once it is exposed). She then says `Dig three stones.` Break three allowed blocks. She counts `One stone.` then `Two stones.` then `Good job! Three stones!`
+She does not follow you, and she does not say she will walk behind you. She is the friend who leads. You follow her.
+
+When you join she says hello before any quest:
+
+1. `Hi! You can call me Maple.`
+2. `What's your name?` If you answer (`I'm Tom`, `Tom`), she says `Nice to meet you, Tom.` If you say nothing for about 18 seconds, she uses your join name: `I will call you Steve.`
+3. `Hey, wanna play something cool?`
+4. Then the mission is obvious: chat says `Quest: Dig three stones.` and `Come with me. Dig three stones.` On Paper she also puts **Dig three stones** on the title, with subtitle `Follow Maple`, and keeps that on the action bar. Title commands need her to be allowed to run `/title`. The chat lines still show the goal if the command is refused.
+
+She then walks toward stone (or digs a short way down if none is in sight). Stay with her. When stone is beside you she says `Dig three stones.` Break three allowed blocks. She counts `One stone.` then `Two stones.` then `Good job! Three stones!`
 
 A wooden pickaxe is faster. Punching stone also counts. You do not have to say "I dug it."
 
 | Step | She says | You do |
 | --- | --- | --- |
-| 1. Find | `Find some stone.` | Stand next to exposed stone (about two blocks). |
-| 2. Dig | `Dig three stones.` | Break three allowed blocks. `One stone.` / `Two stones.` mark progress. |
-| 3. Done | `Good job! Three stones!` | Stop. One quest, then she goes back to normal play. |
+| Hello | `Hi! You can call me Maple.` | Nothing. She asks next. |
+| Name | `What's your name?` | Say a name, or wait. She will use your join name. |
+| Invite | `Hey, wanna play something cool?` | Nothing. She starts the quest. |
+| Find | `Quest: Dig three stones.` then `Come with me. Dig three stones.` | Follow her to stone. |
+| Dig | `Dig three stones.` | Break three allowed blocks. `One stone.` / `Two stones.` mark progress. |
+| Done | `Good job! Three stones!` | Stop. One quest, then she goes back to normal play. |
 
-Typing in chat does not skip a step. She repeats the current English line. `follow me`, `come here`, `stop`, and `look at me` still move her.
+Typing does not skip the dig. During the name step, a normal chat line is your answer. `follow me` does not make her trail you. Lines like "right behind me" or "I will follow you" are not said while she is guiding.
 
-If a step sits for about 18 seconds, she adds one short Chinese hint (`去找石头。` or `挖三块石头。`), once per step. English stays the lesson. She repeats the current English line about every 14 seconds.
+If the find or dig step sits for about 18 seconds, she adds one short Chinese hint (`跟着我去挖石头。` or `挖三块石头。`), once per step. English stays the lesson. She repeats the current English line about every 14 seconds.
 
 While she is guiding, she does not send the usual join invite, party idle chat, mini-quests, situate chatter, or quiet nudges. Those come back after `Good job! Three stones!`
 
@@ -66,8 +78,14 @@ Three breaks after she has a kid in the quest complete it. If the first break is
 ```text
 [maple] DIG_STONE_QUEST on. Gated dig-three-stones tutorial. See docs/dig-stone-quest.md
 [maple] digstone quest armed
-[maple] digstone quest start player=YourName step=find
-[maple] digstone say step=find player=YourName: Find some stone.
+[maple] digstone quest start player=YourName step=hello
+[maple] digstone say step=hello player=YourName: Hi! You can call me Maple.
+[maple] digstone say step=name player=YourName: What's your name?
+[maple] digstone say step=name player=YourName: Nice to meet you, Tom.
+[maple] digstone say step=invite player=YourName: Hey, wanna play something cool?
+[maple] digstone objective player=YourName: Quest: Dig three stones.
+[maple] digstone title phase=find player=YourName
+[maple] digstone say step=find player=YourName: Come with me. Dig three stones.
 [maple] digstone step find -> dig player=YourName reason=near-stone
 [maple] digstone say step=dig player=YourName: Dig three stones.
 [maple] digstone progress dug=1 player=YourName: One stone.
@@ -89,5 +107,7 @@ A chat line while the quest is open looks like this, and the step does not chang
 2. 终端 2：`DIG_STONE_QUEST=1 npm start`。也可以 `QUEST=digstone`、`QUEST=dig_stone` 或 `QUEST=digStone`。不要把密钥写进这个开关。
 3. Minecraft Java 加入 `127.0.0.1:25565`。麦克风可开可不开。
 4. Maple 只属于 Maple 这个人格。Spark 看到这个开关也会忽略。
-5. 她先说 `Find some stone.`。往下挖到石头露出来（脚边大约两格）。她再说 `Dig three stones.`。敲碎三块允许的石头（石头、圆石、深板岩、安山岩、闪长岩、花岗岩、凝灰岩等，见上面的名单）。她会说 `One stone.`、`Two stones.`，然后 `Good job! Three stones!`。
-6. 只打字不会进入下一步。卡住大约 18 秒，她用一句中文提示（`去找石头。` 或 `挖三块石头。`），然后继续重复当前的英语。
+5. 她先做很短的招呼：`Hi! You can call me Maple.`，再问 `What's your name?`。你回答名字就用你的名字；大约 18 秒不回答，就用你进服的用户名。然后她说 `Hey, wanna play something cool?`。
+6. 招呼之后才是任务。聊天会出现 `Quest: Dig three stones.` 和 `Come with me. Dig three stones.`。Paper 上还会打出大标题 **Dig three stones**（副标题 `Follow Maple`）和动作栏。她带路走向石头，你跟着她。她不会跟在你后面，也不会说 right behind me。
+7. 到了石头旁边她说 `Dig three stones.`。敲碎三块允许的石头（石头、圆石、深板岩、安山岩、闪长岩、花岗岩、凝灰岩等，见上面的名单）。她会说 `One stone.`、`Two stones.`，然后 `Good job! Three stones!`。
+8. 挖石头这一步不能靠打字跳过。找石头或挖石头卡住大约 18 秒，她用一句中文提示（`跟着我去挖石头。` 或 `挖三块石头。`），然后继续重复当前的英语。

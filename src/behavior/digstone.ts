@@ -1,18 +1,27 @@
 /**
  * Dig-three-stones tutorial (digstone / dig_stone / digStone).
- * One gated quest: find stone, break three allowed blocks, then celebrate.
- * Maple does not speak the next English line until the current step is met.
- * Chat is not an input. Only world observations move the step.
+ * Maple says hello, asks a name, then invites play. Only after that does she
+ * lead to stone. Chat cannot skip the dig. A name reply is the one chat that
+ * moves a step; silence falls back to the join username.
  *
- * Perception already hears digs, but it dedupes by block name for about 45s,
- * so those notes cannot count three stones. This gate counts completed breaks
- * the guide reports, one step change per tick.
+ * Perception dig notes dedupe by block name, so the guide counts real breaks.
  */
-export type DigStoneStep = 'find' | 'dig' | 'done'
+export type DigStoneStep = 'hello' | 'name' | 'invite' | 'find' | 'dig' | 'done'
 
-/** Short spoken lines. The lesson lines stay at or under 10 words. */
+/**
+ * Shown in chat and on the Paper title once the hello is done.
+ * Not the first line — she introduces herself first.
+ */
+export const DIG_STONE_OBJECTIVE = 'Quest: Dig three stones.'
+export const DIG_STONE_TITLE = 'Dig three stones'
+export const DIG_STONE_SUBTITLE = 'Follow Maple'
+
+/** Short spoken lines. Each lesson line stays at or under 10 words. */
 export const DIG_STONE_LINES = {
-  find: 'Find some stone.',
+  hello: 'Hi! You can call me Maple.',
+  name: "What's your name?",
+  invite: 'Hey, wanna play something cool?',
+  find: 'Come with me. Dig three stones.',
   dig: 'Dig three stones.',
   done: 'Good job! Three stones!',
 } as const
@@ -25,13 +34,15 @@ export const DIG_STONE_PROGRESS = {
 
 /** Tiny stuck hints. Chinese only — the quest itself stays in English. */
 export const DIG_STONE_HINTS = {
-  find: '去找石头。',
+  find: '跟着我去挖石头。',
   dig: '挖三块石头。',
 } as const
 
 export const DIG_STONE_TARGET = 3
 export const DIG_STONE_REPEAT_MS = 14_000
 export const DIG_STONE_HINT_MS = 18_000
+/** Pause so the hello, and then the invite, can be heard before the next line. */
+export const DIG_STONE_BEAT_MS = 1_600
 export const DIG_STONE_POLL_MS = 400
 /** Chebyshev radius around the player's feet. Standing beside exposed stone counts. */
 export const DIG_STONE_NEAR_RADIUS = 2
@@ -63,6 +74,8 @@ const STONE_BLOCK_SET = new Set<string>(DIG_STONE_BLOCKS)
 
 export interface DigStoneQuest {
   player: string
+  /** Name she will use. Null until the name step settles. */
+  called: string | null
   step: DigStoneStep
   dug: number
   stepEnteredAt: number
@@ -72,20 +85,48 @@ export interface DigStoneQuest {
 }
 
 export type DigStoneEvent =
+  | { type: 'objective'; text: string }
   | { type: 'say'; step: DigStoneStep; text: string }
   | { type: 'progress'; dug: number; text: string }
   | { type: 'hint'; step: 'find' | 'dig'; text: string }
   | { type: 'advance'; from: DigStoneStep; to: DigStoneStep; reason: string }
 
+export type DigStoneTitlePhase = 'find' | 'dig' | 'done' | 'actionbar'
+
+export interface StoneSpot {
+  x: number
+  y: number
+  z: number
+  exposed: boolean
+  standX?: number
+  standY?: number
+  standZ?: number
+}
+
+export interface LeadTarget {
+  x: number
+  y: number
+  z: number
+  kind: 'stone' | 'down'
+  exposed: boolean
+}
+
+/** Live quest hooks hung on the bot so voice and other chat can defer to the lesson. */
+export interface MapleQuestHooks {
+  guiding: () => boolean
+  stepLine: () => string | null
+}
+
 export interface DigStoneTickInput {
   now: number
-  /** False when the player's body is not loaded. Do not advance. */
+  /** False when the player's body is not loaded. Do not advance the dig. */
   visible: boolean
   nearStone: boolean
   /** Allowed stone breaks to apply on this tick. The find tick never spends these. */
   stoneDug: number
   repeatMs?: number
   hintAfterMs?: number
+  beatMs?: number
 }
 
 export interface DigStoneWorldInput {
@@ -100,6 +141,7 @@ export interface DigStoneWorldInput {
   breaks?: number
   repeatMs?: number
   hintAfterMs?: number
+  beatMs?: number
 }
 
 export interface StoneBreakClaim {
@@ -163,16 +205,154 @@ export function digStoneScanOffsets(radius = DIG_STONE_NEAR_RADIUS): Array<{ dx:
   return cells
 }
 
+/** Paper 1.21 title commands. Subtitle is sent before title so both show. Empty if the name is unsafe. */
+export function digStoneTitleCommands(player: string, phase: DigStoneTitlePhase): string[] {
+  const name = player.trim()
+  if (!/^[A-Za-z0-9_]{1,16}$/.test(name)) return []
+  if (phase === 'actionbar') {
+    return [`/title ${name} actionbar {text:"${DIG_STONE_TITLE}",color:"gold"}`]
+  }
+  if (phase === 'done') {
+    return [`/title ${name} actionbar {text:"Good job!",color:"green"}`]
+  }
+  const subtitle = phase === 'dig' ? 'Break three blocks' : DIG_STONE_SUBTITLE
+  return [
+    `/title ${name} times 5 70 10`,
+    `/title ${name} subtitle {text:"${subtitle}",color:"yellow"}`,
+    `/title ${name} title {text:"${DIG_STONE_TITLE}",bold:true,color:"gold"}`,
+    `/title ${name} actionbar {text:"${DIG_STONE_TITLE}",color:"gold"}`,
+  ]
+}
+
+/**
+ * Lines that put Maple behind the kid. Suppressed while she is leading the quest.
+ * "Come with me" and "Follow me" (she is the leader) are not trailing lines.
+ */
+export function isTrailingLine(line: string): boolean {
+  return /\b(right behind|behind you|behind me|follow you|following you|i(?:'| a)?m following|i will follow|walk behind|stay behind)\b/i.test(
+    line,
+  )
+}
+
+/** While guiding, replace a trailing line with the current English step. Null means say nothing. */
+export function speakDuringQuest(line: string, hooks: MapleQuestHooks | null | undefined): string | null {
+  if (!hooks?.guiding() || !isTrailingLine(line)) return line
+  return hooks.stepLine()
+}
+
+/**
+ * Where Maple should walk. Exposed stone wins over a closer buried block.
+ * The goal is the stand spot beside the stone when one is known.
+ * No stone in range: step down so she can lead a tunnel.
+ */
+export function chooseDigStoneLead(
+  stones: StoneSpot[],
+  from: { x: number; y: number; z: number },
+): LeadTarget {
+  let best: { spot: StoneSpot; d2: number } | null = null
+  for (const spot of stones) {
+    const goal = standOf(spot)
+    const dx = goal.x + 0.5 - from.x
+    const dy = goal.y - from.y
+    const dz = goal.z + 0.5 - from.z
+    const d2 = dx * dx + dy * dy + dz * dz
+    const closerSameKind = best != null && spot.exposed === best.spot.exposed && d2 < best.d2
+    const exposedWins = best != null && spot.exposed && !best.spot.exposed
+    if (!best || exposedWins || closerSameKind) best = { spot, d2 }
+  }
+  if (!best) {
+    return {
+      x: Math.floor(from.x),
+      y: Math.floor(from.y) - 6,
+      z: Math.floor(from.z),
+      kind: 'down',
+      exposed: false,
+    }
+  }
+  const goal = standOf(best.spot)
+  return { x: goal.x, y: goal.y, z: goal.z, kind: 'stone', exposed: best.spot.exposed }
+}
+
+/** Prefer a side face at the same height, then the block above, then any air, else the stone itself. */
+export function leadStand(
+  stone: { x: number; y: number; z: number },
+  air: Array<{ x: number; y: number; z: number }>,
+): { x: number; y: number; z: number } {
+  const beside = air.find((cell) => cell.y === stone.y)
+  if (beside) return beside
+  const above = air.find((cell) => cell.y === stone.y + 1)
+  if (above) return above
+  return air[0] ?? { x: stone.x, y: stone.y, z: stone.z }
+}
+
 export function digStoneStepLine(quest: Pick<DigStoneQuest, 'step' | 'finished'> | null): string | null {
   if (!quest || quest.finished || quest.step === 'done') return null
-  if (quest.step === 'find') return DIG_STONE_LINES.find
-  return DIG_STONE_LINES.dig
+  return DIG_STONE_LINES[quest.step]
+}
+
+/** True only while she should path toward stone. Hello, name, and invite stay put. */
+export function digStoneLeading(step: DigStoneStep): boolean {
+  return step === 'find' || step === 'dig'
+}
+
+const NAME_STOP = new Set([
+  'hi', 'hello', 'hey', 'ok', 'okay', 'yes', 'no', 'yeah', 'yep', 'nope',
+  'maple', 'what', 'whats', 'your', 'name', 'cool', 'play', 'wanna', 'something',
+  'please', 'thanks', 'thank', 'my', 'the', 'a', 'an', 'is',
+])
+
+/**
+ * A short name from a chat reply, or null when the reply is not a name.
+ * "I'm Tom" and "my name is Tom" both become "Tom".
+ */
+export function parseKidName(text: string): string | null {
+  let rest = text.trim()
+  if (!rest || rest.startsWith('/')) return null
+  for (let i = 0; i < 3; i += 1) {
+    const next = rest.replace(/^(?:hi|hello|hey|my name is|i am|i'm|im|call me|this is|it is|it's|its)[,!.\s]+/i, '').trim()
+    if (next === rest) break
+    rest = next
+  }
+  const words = rest.replace(/[^A-Za-z'\-\s]/g, ' ').trim().split(/\s+/).filter(Boolean)
+  const kept = words.filter((word) => {
+    const key = word.toLowerCase().replace(/'/g, '')
+    return !NAME_STOP.has(key) && word.length <= 16
+  })
+  if (kept.length < 1 || kept.length > 2) return null
+  return kept.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ')
+}
+
+/** Use a parsed name when they answered with one. Otherwise the join username. Null ignores slash chat. */
+export function nameFromReply(text: string, username: string): string | null {
+  const raw = text.trim()
+  if (!raw || raw.startsWith('/')) return null
+  return parseKidName(raw) ?? displayJoinName(username)
+}
+
+export function digStoneNameLine(called: string, fromReply: boolean): string {
+  return fromReply ? `Nice to meet you, ${called}.` : `I will call you ${called}.`
+}
+
+/**
+ * Name step only. A real reply settles the name and says the invite.
+ * Other steps ignore chat, so typing cannot skip the dig.
+ */
+export function noteDigStoneChat(
+  quest: DigStoneQuest,
+  input: { now: number; text: string },
+): { quest: DigStoneQuest; events: DigStoneEvent[] } {
+  if (quest.finished || quest.step !== 'name') return { quest, events: [] }
+  const called = nameFromReply(input.text, quest.player)
+  if (!called) return { quest, events: [] }
+  const fromReply = parseKidName(input.text) != null
+  return enterInvite(quest, called, input.now, fromReply)
 }
 
 export function createDigStoneQuest(player: string, now: number): { quest: DigStoneQuest; events: DigStoneEvent[] } {
   const quest: DigStoneQuest = {
     player,
-    step: 'find',
+    called: null,
+    step: 'hello',
     dug: 0,
     stepEnteredAt: now,
     lastSpokenAt: now,
@@ -181,7 +361,7 @@ export function createDigStoneQuest(player: string, now: number): { quest: DigSt
   }
   return {
     quest,
-    events: [{ type: 'say', step: 'find', text: DIG_STONE_LINES.find }],
+    events: [{ type: 'say', step: 'hello', text: DIG_STONE_LINES.hello }],
   }
 }
 
@@ -198,9 +378,41 @@ export function tickDigStone(
 
   const repeatMs = input.repeatMs ?? DIG_STONE_REPEAT_MS
   const hintAfterMs = input.hintAfterMs ?? DIG_STONE_HINT_MS
+  const beatMs = input.beatMs ?? DIG_STONE_BEAT_MS
   const dugNow = finiteFloor(input.stoneDug)
   let next: DigStoneQuest = { ...quest }
   const events: DigStoneEvent[] = []
+
+  if (next.step === 'hello' && input.now - next.stepEnteredAt >= beatMs) {
+    next = {
+      ...next,
+      step: 'name',
+      stepEnteredAt: input.now,
+      lastSpokenAt: input.now,
+      hinted: false,
+    }
+    events.push({ type: 'advance', from: 'hello', to: 'name', reason: 'hello' })
+    events.push({ type: 'say', step: 'name', text: DIG_STONE_LINES.name })
+    return { quest: next, events }
+  }
+
+  if (next.step === 'name' && input.now - next.stepEnteredAt >= hintAfterMs) {
+    return enterInvite(next, displayJoinName(next.player), input.now, false)
+  }
+
+  if (next.step === 'invite' && input.now - next.stepEnteredAt >= beatMs) {
+    next = {
+      ...next,
+      step: 'find',
+      stepEnteredAt: input.now,
+      lastSpokenAt: input.now,
+      hinted: false,
+    }
+    events.push({ type: 'advance', from: 'invite', to: 'find', reason: 'play' })
+    events.push({ type: 'objective', text: DIG_STONE_OBJECTIVE })
+    events.push({ type: 'say', step: 'find', text: DIG_STONE_LINES.find })
+    return { quest: next, events }
+  }
 
   if (input.visible && next.step === 'find' && (input.nearStone || dugNow > 0)) {
     next = {
@@ -248,8 +460,11 @@ export function tickDigStone(
     return { quest: next, events }
   }
 
-  if (input.now - next.lastSpokenAt >= repeatMs) {
-    const step = next.step === 'dig' ? 'dig' : 'find'
+  if (
+    (next.step === 'name' || next.step === 'find' || next.step === 'dig') &&
+    input.now - next.lastSpokenAt >= repeatMs
+  ) {
+    const step = next.step
     next = { ...next, lastSpokenAt: input.now }
     events.push({ type: 'say', step, text: DIG_STONE_LINES[step] })
     return { quest: next, events }
@@ -278,7 +493,8 @@ export function applyDigStoneWorld(
   input: DigStoneWorldInput,
 ): { quest: DigStoneQuest; events: DigStoneEvent[] } {
   const breaks = finiteFloor(input.breaks ?? 0)
-  if (!input.visible || breaks <= 0) {
+  const rapport = quest.step === 'hello' || quest.step === 'name' || quest.step === 'invite'
+  if (rapport || !input.visible || breaks <= 0) {
     return tickDigStone(quest, {
       now: input.now,
       visible: input.visible,
@@ -286,6 +502,7 @@ export function applyDigStoneWorld(
       stoneDug: 0,
       repeatMs: input.repeatMs,
       hintAfterMs: input.hintAfterMs,
+      beatMs: input.beatMs,
     })
   }
 
@@ -301,11 +518,13 @@ export function applyDigStoneWorld(
         stoneDug: 0,
         repeatMs: input.repeatMs,
         hintAfterMs: input.hintAfterMs,
+        beatMs: input.beatMs,
       })
       current = advanced.quest
       events.push(...advanced.events)
       if (current.step !== 'dig') break
     }
+    if (current.step !== 'dig') break
     const counted = tickDigStone(current, {
       now: input.now,
       visible: true,
@@ -313,11 +532,50 @@ export function applyDigStoneWorld(
       stoneDug: 1,
       repeatMs: input.repeatMs,
       hintAfterMs: input.hintAfterMs,
+      beatMs: input.beatMs,
     })
     current = counted.quest
     events.push(...counted.events)
   }
   return { quest: current, events }
+}
+
+function enterInvite(
+  quest: DigStoneQuest,
+  called: string,
+  now: number,
+  fromReply: boolean,
+): { quest: DigStoneQuest; events: DigStoneEvent[] } {
+  const reason = fromReply ? 'answered' : 'username'
+  return {
+    quest: {
+      ...quest,
+      called,
+      step: 'invite',
+      stepEnteredAt: now,
+      lastSpokenAt: now,
+      hinted: false,
+    },
+    events: [
+      { type: 'advance', from: 'name', to: 'invite', reason },
+      { type: 'say', step: 'name', text: digStoneNameLine(called, fromReply) },
+      { type: 'say', step: 'invite', text: DIG_STONE_LINES.invite },
+    ],
+  }
+}
+
+function displayJoinName(username: string): string {
+  const name = username.trim()
+  if (/^[A-Za-z0-9_]{1,16}$/.test(name)) return name
+  return 'friend'
+}
+
+function standOf(spot: StoneSpot): { x: number; y: number; z: number } {
+  return {
+    x: spot.standX ?? spot.x,
+    y: spot.standY ?? spot.y,
+    z: spot.standZ ?? spot.z,
+  }
 }
 
 function progressText(dug: number): string {

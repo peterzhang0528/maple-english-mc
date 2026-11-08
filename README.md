@@ -67,7 +67,7 @@ Leave `ANTHROPIC_API_KEY` empty the first time. Maple still answers. Add the key
 
 ## Dig three stones
 
-Off unless you set `DIG_STONE_QUEST=1` or `QUEST=digstone` (also `dig_stone` or `digStone`). Maple — not Spark — then teaches one tiny mining step and will not say the next English line until the kid does it in the world: stand next to stone, break three stone blocks, then `Good job! Three stones!` Chat does not skip a step. How to join `127.0.0.1:25565` and which blocks count: [docs/dig-stone-quest.md](docs/dig-stone-quest.md).
+Off unless you set `DIG_STONE_QUEST=1` or `QUEST=digstone` (also `dig_stone` or `digStone`). Maple — not Spark — says hello, asks your name, then invites you to play. After that the goal is on screen: `Quest: Dig three stones.` She leads the way. You follow her. She does not trail behind you. Chat does not skip the dig. How to join `127.0.0.1:25565` and which blocks count: [docs/dig-stone-quest.md](docs/dig-stone-quest.md).
 
 Try the same conversation without a game:
 
@@ -368,7 +368,7 @@ npm start         # 终端 2：Maple 进入游戏
 
 ## 挖三块石头
 
-默认关闭。设置 `DIG_STONE_QUEST=1` 或 `QUEST=digstone`（也可以 `dig_stone`、`digStone`）后，只有 Maple 会教这一件小事：走到石头旁边，敲碎三块，然后说 `Good job! Three stones!`。没在世界里做到，就不会说下一句英语。只打字不能跳步。怎么进 `127.0.0.1:25565`、哪些方块算数，见 [docs/dig-stone-quest.md](docs/dig-stone-quest.md)。
+默认关闭。设置 `DIG_STONE_QUEST=1` 或 `QUEST=digstone`（也可以 `dig_stone`、`digStone`）后，只有 Maple 会先打招呼、问名字、再邀请一起玩。然后目标写清楚：`Quest: Dig three stones.` 她带路，你跟着她，她不会跟在你后面。没在世界里挖到三块石头，就不会说完成。怎么进 `127.0.0.1:25565`、哪些方块算数，见 [docs/dig-stone-quest.md](docs/dig-stone-quest.md)。
 
 不启动游戏也可以看同一段练习：
 

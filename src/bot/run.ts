@@ -32,7 +32,12 @@ import {
   situateComment,
   variedQuietNudge,
 } from '../behavior/fun.js'
-import { digStoneQuestArmed, digStoneQuestEnabled } from '../behavior/digstone.js'
+import {
+  digStoneQuestArmed,
+  digStoneQuestEnabled,
+  speakDuringQuest,
+  type MapleQuestHooks,
+} from '../behavior/digstone.js'
 import { attachDigStoneGuide, type DigStoneGuide } from './digStoneGuide.js'
 
 export interface CompanionHandle {
@@ -70,19 +75,27 @@ function logTag(config: AppConfig): string {
 
 /** In-game chat plus optional mic-page TTS (Spark party voice). */
 function chatOut(bot: Bot, config: AppConfig, line: string): void {
+  const hooks = (bot as { mapleQuest?: MapleQuestHooks }).mapleQuest
+  const spoken = speakDuringQuest(line, hooks)
+  if (!spoken) return
   // PARTY_IDLE_CHAT=0 => Spark stays fully silent (no MC chat, no party TTS). Maple still speaks.
   if (config.persona === 'spark' && !partyIdleChatEnabled()) {
-    console.log(`[spark] muted skip: ${line.replace(/\s+/g, ' ').trim().slice(0, 80)}`)
+    console.log(`[spark] muted skip: ${spoken.replace(/\s+/g, ' ').trim().slice(0, 80)}`)
     return
   }
-  bot.chat(line)
-  void announcePartyLine(config.username, line)
+  bot.chat(spoken)
+  void announcePartyLine(config.username, spoken)
 }
 
 export async function startCompanion(config: AppConfig, session?: Session): Promise<CompanionHandle> {
   const tag = logTag(config)
   const state = session ?? createSession(config.difficulty, config.historyTurns)
   const bot = createCompanionBot(config)
+  const questHooks: MapleQuestHooks = {
+    guiding: () => digStone?.guiding() ?? false,
+    stepLine: () => digStone?.stepLine() ?? null,
+  }
+  ;(bot as { mapleQuest?: MapleQuestHooks }).mapleQuest = questHooks
   const limiter = new TurnLimiter(
     config.playerMinIntervalMs,
     config.muteMs,
@@ -171,7 +184,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
       console.log(`[${tag}] proactive invite -> ${username}`)
       void queue.send(toChatLines(line, config.chatMaxLineChars, config.chatMaxLines), (text) => chatOut(bot, config, text))
     }
-    if (follow) {
+    if (follow && !digStoneOn) {
       setTimeout(() => {
         void performIntents(bot, username, [{ type: 'come' }]).catch((error: unknown) => {
           console.error(`[${tag}] proactive walk: ${error instanceof Error ? error.message : String(error)}`)
@@ -287,11 +300,6 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
           void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (text) => chatOut(bot, config, text))
         },
         log: (message) => console.log(`[${tag}] ${message}`),
-        follow: (username) => {
-          void performIntents(bot, username, [{ type: 'follow' }]).catch((error: unknown) => {
-            console.error(`[${tag}] digstone follow: ${error instanceof Error ? error.message : String(error)}`)
-          })
-        },
       })
       const noticeHumans = () => {
         const names = Object.keys(bot.players).sort((a, b) => {
@@ -411,6 +419,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     }, ENV_COMMENT_POLL_MS)
 
     bodyRescueTimer = setInterval(() => {
+      if (questGuiding()) return
       const human = rescueIfBuried(bot, tag)
       if (!human) return
       void performIntents(bot, human, [{ type: 'come' }]).catch((error: unknown) => {
@@ -420,6 +429,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
 
     // Keep following the human so GPT Live / chat gaps do not leave Maple frozen beside them.
     keepFollowTimer = setInterval(() => {
+      if (questGuiding()) return
       const marked = (bot as { mapleHoldStillUntil?: number }).mapleHoldStillUntil ?? 0
       if (Date.now() < Math.max(holdStillUntil, marked)) return
       const human = primaryHuman()
@@ -515,6 +525,10 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
 
   bot.on('path_reset', (reason) => {
     if (reason !== 'stuck') return
+    if (questGuiding()) {
+      console.log(`[${tag}] digstone path stuck; Maple keeps leading`)
+      return
+    }
     const now = Date.now()
     if (now - lastStuck < 20_000) return
     lastStuck = now
@@ -558,20 +572,14 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
         return
       }
       lastHumanChatAt = lastChatAt
+      if (digStone.noteChat(text)) {
+        console.log(`[${tag}] digstone name <${username}> ${text}`)
+        return
+      }
       const line = digStone.stepLine()
       console.log(`[${tag}] digstone hold; chat does not advance <${username}> ${text}`)
       if (line) {
         void queue.send(toChatLines(line, config.chatMaxLineChars, 1), (textLine) => chatOut(bot, config, textLine))
-      }
-      if (!text.startsWith('/')) {
-        const moves = parseIntents(text).filter(
-          (intent) => intent.type === 'follow' || intent.type === 'come' || intent.type === 'stop' || intent.type === 'look',
-        )
-        if (moves.length > 0) {
-          void performIntents(bot, username, moves).catch((error: unknown) => {
-            console.error(`[${tag}] digstone move: ${error instanceof Error ? error.message : String(error)}`)
-          })
-        }
       }
       return
     }

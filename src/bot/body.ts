@@ -83,7 +83,8 @@ export function ensureVisibleBody(bot: Bot, tag: string): void {
   // Local world often left bots in a y=60 dirt pocket — nudge up once on ensure.
   try {
     const y = bot.entity?.position?.y
-    if (typeof y === 'number' && y < 64) {
+    const guiding = (bot as { mapleQuest?: { guiding: () => boolean } }).mapleQuest?.guiding()
+    if (!guiding && typeof y === 'number' && y < 64) {
       bot.chat('/tp @s ~ 72 ~')
     }
   } catch {
