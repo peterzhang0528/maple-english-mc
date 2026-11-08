@@ -1,0 +1,250 @@
+/**
+ * Mineflayer wiring for the dig-three-stones quest.
+ * Speech and step changes come only from the gate in digstone.ts.
+ * A count is a stone-like block turning into air, attributed to the kid —
+ * not a chat line, and not perception's deduped "someone is digging" note.
+ */
+import type { Bot } from 'mineflayer'
+import { isCompanionUsername } from '../chat/persona.js'
+import {
+  DIG_STONE_HINT_MS,
+  DIG_STONE_POLL_MS,
+  DIG_STONE_REACH,
+  DIG_STONE_REPEAT_MS,
+  applyDigStoneWorld,
+  createDigStoneQuest,
+  creditStoneBreak,
+  digStoneScanOffsets,
+  digStoneStepLine,
+  isDigStoneBlock,
+  sameBreakTwice,
+  type DigStoneEvent,
+  type DigStoneQuest,
+} from '../behavior/digstone.js'
+
+export interface DigStoneGuide {
+  stop: () => void
+  /** True from the first line until the celebrate line. */
+  guiding: () => boolean
+  /** English line for the current step, or null when the quest is idle or done. */
+  stepLine: () => string | null
+  /** Start once, for the first allowed human. Later calls do nothing. */
+  noteHuman: (username: string) => void
+}
+
+const SCAN = digStoneScanOffsets()
+const PROGRESS_TTL_MS = 5_000
+const BREAK_DEDUPE_MS = 800
+
+export function attachDigStoneGuide(options: {
+  bot: Bot
+  playerAllowed: (username: string) => boolean
+  say: (line: string) => void
+  log: (message: string) => void
+  follow: (username: string) => void
+}): DigStoneGuide {
+  const { bot, playerAllowed, say, log, follow } = options
+  let quest: DigStoneQuest | null = null
+  let stopped = false
+  let flushing = false
+  let pendingBreaks = 0
+  const progressByPos = new Map<string, { player: string; at: number }>()
+  const countedAt = new Map<string, number>()
+
+  const emit = (player: string, events: DigStoneEvent[]) => {
+    for (const event of events) {
+      if (event.type === 'advance') {
+        log(`digstone step ${event.from} -> ${event.to} player=${player} reason=${event.reason}`)
+        if (event.to === 'done') log(`digstone quest done player=${player}`)
+        if (event.to === 'dig') follow(player)
+      } else if (event.type === 'say') {
+        log(`digstone say step=${event.step} player=${player}: ${event.text}`)
+        say(event.text)
+      } else if (event.type === 'progress') {
+        log(`digstone progress dug=${event.dug} player=${player}: ${event.text}`)
+        say(event.text)
+      } else if (event.type === 'hint') {
+        log(`digstone hint step=${event.step} player=${player}: ${event.text}`)
+        say(event.text)
+      }
+    }
+  }
+
+  const noteHuman = (username: string) => {
+    if (stopped || quest) return
+    const name = username.trim()
+    if (!name) return
+    if (name.toLowerCase() === bot.username.toLowerCase()) return
+    if (isCompanionUsername(name)) return
+    if (!playerAllowed(name)) return
+    const started = createDigStoneQuest(name, Date.now())
+    quest = started.quest
+    log(`digstone quest start player=${name} step=find`)
+    emit(name, started.events)
+    follow(name)
+  }
+
+  const flush = () => {
+    if (flushing || stopped || !quest || quest.finished) return
+    flushing = true
+    try {
+      for (let i = 0; i < 8 && quest && !quest.finished; i += 1) {
+        const breaks = pendingBreaks
+        pendingBreaks = 0
+        const sensed = sensePlayer(bot, quest.player)
+        // A credited break is itself proof the kid is here, even if the feet scan missed them.
+        const ticked = applyDigStoneWorld(quest, {
+          now: Date.now(),
+          visible: sensed.visible || breaks > 0,
+          nearStone: sensed.nearStone,
+          breaks,
+          repeatMs: DIG_STONE_REPEAT_MS,
+          hintAfterMs: DIG_STONE_HINT_MS,
+        })
+        quest = ticked.quest
+        emit(quest.player, ticked.events)
+        if (pendingBreaks === 0) break
+      }
+    } finally {
+      flushing = false
+    }
+  }
+
+  const rememberDigger = (
+    block: { position?: { x: number; y: number; z: number } } | null,
+    entity: { username?: string } | null,
+  ) => {
+    if (stopped || !quest || quest.finished) return
+    const name = entity?.username?.trim()
+    const key = positionKey(block?.position)
+    if (!name || !key) return
+    const now = Date.now()
+    progressByPos.set(key, { player: name, at: now })
+    if (progressByPos.size <= 32) return
+    for (const [pos, mark] of progressByPos) {
+      if (now - mark.at > PROGRESS_TTL_MS) progressByPos.delete(pos)
+    }
+  }
+
+  const onBlockUpdate = (
+    oldBlock: { name?: string; position?: { x: number; y: number; z: number } } | null,
+    newBlock: { name?: string; position?: { x: number; y: number; z: number } } | null,
+  ) => {
+    if (stopped || !quest || quest.finished) return
+    const oldName = oldBlock?.name
+    const newName = newBlock?.name || 'air'
+    if (!oldName || !becameAir(oldName, newName) || !isDigStoneBlock(oldName)) return
+    const pos = oldBlock?.position ?? newBlock?.position
+    const key = positionKey(pos)
+    if (!key || !pos) return
+    const now = Date.now()
+    const mark = progressByPos.get(key)
+    progressByPos.delete(key)
+    const progressPlayer = mark && now - mark.at <= PROGRESS_TTL_MS ? mark.player : null
+    const nearest = nearestBreaker(bot, pos, bot.username)
+    if (
+      !creditStoneBreak({
+        blockName: oldName,
+        questPlayer: quest.player,
+        progressPlayer,
+        nearestPlayer: nearest,
+      })
+    ) {
+      return
+    }
+    if (sameBreakTwice(countedAt.get(key) ?? null, now, BREAK_DEDUPE_MS)) return
+    countedAt.set(key, now)
+    pendingBreaks += 1
+    flush()
+  }
+
+  // Typed defs omit the digger entity. Runtime still passes it (block_actions.js).
+  const onBreakProgressLoose = ((
+    block: { position?: { x: number; y: number; z: number } } | null,
+    _stage: number,
+    entity: { username?: string } | null,
+  ) => {
+    rememberDigger(block, entity)
+  }) as (...args: unknown[]) => void
+  const onBreakEndLoose = ((
+    block: { position?: { x: number; y: number; z: number } } | null,
+    entity: { username?: string } | null,
+  ) => {
+    rememberDigger(block, entity)
+  }) as (...args: unknown[]) => void
+
+  bot.on('blockBreakProgressObserved', onBreakProgressLoose)
+  bot.on('blockBreakProgressEnd', onBreakEndLoose)
+  bot.on('blockUpdate', onBlockUpdate)
+
+  const timer = setInterval(() => {
+    flush()
+  }, DIG_STONE_POLL_MS)
+
+  return {
+    stop: () => {
+      stopped = true
+      clearInterval(timer)
+      bot.removeListener('blockBreakProgressObserved', onBreakProgressLoose)
+      bot.removeListener('blockBreakProgressEnd', onBreakEndLoose)
+      bot.removeListener('blockUpdate', onBlockUpdate)
+    },
+    guiding: () => quest != null && !quest.finished,
+    stepLine: () => digStoneStepLine(quest),
+    noteHuman,
+  }
+}
+
+function sensePlayer(bot: Bot, username: string): { visible: boolean; nearStone: boolean } {
+  const entity = bot.players[username]?.entity
+  if (!entity?.position) return { visible: false, nearStone: false }
+  const feet = entity.position.floored()
+  for (const cell of SCAN) {
+    let block: { name?: string } | null = null
+    try {
+      block = bot.blockAt(feet.offset(cell.dx, cell.dy, cell.dz))
+    } catch {
+      block = null
+    }
+    if (isDigStoneBlock(block?.name)) return { visible: true, nearStone: true }
+  }
+  return { visible: true, nearStone: false }
+}
+
+function nearestBreaker(
+  bot: Bot,
+  position: { x: number; y: number; z: number },
+  selfName: string,
+): string | null {
+  let best: { name: string; distance: number } | null = null
+  const target = position as Parameters<NonNullable<Bot['entity']>['position']['distanceTo']>[0]
+  for (const name of Object.keys(bot.players)) {
+    if (name.toLowerCase() === selfName.toLowerCase()) continue
+    const entity = bot.players[name]?.entity
+    if (!entity?.position) continue
+    let distance = Number.POSITIVE_INFINITY
+    try {
+      distance = entity.position.distanceTo(target)
+    } catch {
+      continue
+    }
+    if (!Number.isFinite(distance) || distance > DIG_STONE_REACH) continue
+    if (!best || distance < best.distance) best = { name, distance }
+  }
+  return best?.name ?? null
+}
+
+function positionKey(position: { x: number; y: number; z: number } | null | undefined): string | null {
+  if (!position) return null
+  if (!Number.isFinite(position.x) || !Number.isFinite(position.y) || !Number.isFinite(position.z)) return null
+  return `${Math.floor(position.x)},${Math.floor(position.y)},${Math.floor(position.z)}`
+}
+
+function becameAir(oldName: string, newName: string): boolean {
+  return !isAirName(oldName) && isAirName(newName)
+}
+
+function isAirName(name: string): boolean {
+  const id = name.trim().toLowerCase().replace(/^minecraft:/, '')
+  return id === 'air' || id === 'cave_air' || id === 'void_air'
+}

@@ -65,6 +65,10 @@ In the Minecraft client, add a server at `127.0.0.1:25565` and join. Offline mod
 
 Leave `ANTHROPIC_API_KEY` empty the first time. Maple still answers. Add the key when you want Claude Opus 5.5.
 
+## Dig three stones
+
+Off unless you set `DIG_STONE_QUEST=1` or `QUEST=digstone` (also `dig_stone` or `digStone`). Maple — not Spark — then teaches one tiny mining step and will not say the next English line until the kid does it in the world: stand next to stone, break three stone blocks, then `Good job! Three stones!` Chat does not skip a step. How to join `127.0.0.1:25565` and which blocks count: [docs/dig-stone-quest.md](docs/dig-stone-quest.md).
+
 Try the same conversation without a game:
 
 ```bash
@@ -126,7 +130,8 @@ Copy `.env.example` to `.env`. Nothing secret is hardcoded.
 | `MC_AUTH` | `offline` | `offline` or `microsoft` |
 | `MC_VERSION` | `1.21.4` | Protocol version, or `auto` |
 | `MC_PLAYER` | empty | If set, Maple only answers these names (comma-separated). Set this on a public server |
-| `MC_GREET` | `true` | Say hello on join |
+| `MC_GREET` | `true` | Say hello on join. Skipped while the dig-stone quest is on, so the quest line is the hello |
+| `DIG_STONE_QUEST` | off | `1` turns on the gated dig-three-stones tutorial for Maple. `QUEST=digstone` does the same (`dig_stone` and `digStone` too). See [docs/dig-stone-quest.md](docs/dig-stone-quest.md) |
 | `CHAT_MODE` | `chat` | `chat` talks to everyone nearby. `whisper` uses `/tell` |
 | `CHAT_MAX_LINE_CHARS` | `180` | Minecraft allows 256. Shorter lines are easier to read |
 | `CHAT_MAX_LINES` | `3` | Most replies are cut after this many lines |
@@ -361,6 +366,10 @@ npm start         # 终端 2：Maple 进入游戏
 
 第一次可以把 `ANTHROPIC_API_KEY` 留空，Maple 仍会回答。需要 Claude Opus 5.5 时再填上 key。
 
+## 挖三块石头
+
+默认关闭。设置 `DIG_STONE_QUEST=1` 或 `QUEST=digstone`（也可以 `dig_stone`、`digStone`）后，只有 Maple 会教这一件小事：走到石头旁边，敲碎三块，然后说 `Good job! Three stones!`。没在世界里做到，就不会说下一句英语。只打字不能跳步。怎么进 `127.0.0.1:25565`、哪些方块算数，见 [docs/dig-stone-quest.md](docs/dig-stone-quest.md)。
+
 不启动游戏也可以看同一段练习：
 
 ```bash
@@ -422,7 +431,8 @@ MC_USERNAME=your.email@example.com
 | `MC_AUTH` | `offline` | `offline` 或 `microsoft` |
 | `MC_VERSION` | `1.21.4` | 协议版本，或 `auto` |
 | `MC_PLAYER` | 空 | 若填写，Maple 只回复这些玩家（逗号分隔）。公共服务器请一定要填 |
-| `MC_GREET` | `true` | 进入游戏时打招呼 |
+| `MC_GREET` | `true` | 进入游戏时打招呼。挖石头任务开启时会跳过，避免盖过任务的第一句 |
+| `DIG_STONE_QUEST` | 关 | 设为 `1` 时，Maple 开启挖三块石头教程。`QUEST=digstone` 同样（也接受 `dig_stone`、`digStone`）。见 [docs/dig-stone-quest.md](docs/dig-stone-quest.md) |
 | `CHAT_MODE` | `chat` | `chat` 是附近都能看见的公聊。`whisper` 使用 `/tell` |
 | `CHAT_MAX_LINE_CHARS` | `180` | 游戏上限是 256。短一点更好读 |
 | `CHAT_MAX_LINES` | `3` | 一条回复最多这么多行 |
