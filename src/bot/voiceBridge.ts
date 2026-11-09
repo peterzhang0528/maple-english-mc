@@ -85,6 +85,11 @@ export async function applySpokenTurn(input: {
       const remember = (input.bot as { mapleRememberSaid?: (t: string) => void }).mapleRememberSaid
       if (typeof remember === 'function') remember(heard)
     }
+    const hooks = (input.bot as { mapleQuest?: MapleQuestHooks } | null)?.mapleQuest
+    if (heard && hooks?.guiding()) {
+      hooks.replyToKid?.(heard)
+      return
+    }
     // GPT Live only posts transcripts (no tool/action channel). Parse walk intents here
     // the same way Doubao's effectFromSpeech does, so "come here / follow me" moves the body.
     const intents = parseIntents(heard).filter((intent) => MOVE_TYPES.has(intent.type))
@@ -100,6 +105,8 @@ export async function applySpokenTurn(input: {
   }
 
   if (message.type === 'maple_text' && message.final === true && typeof message.text === 'string') {
+    const hooks = (input.bot as { mapleQuest?: MapleQuestHooks } | null)?.mapleQuest
+    if (hooks?.blocksIdle?.()) return
     await say(input, message.text)
   }
 }

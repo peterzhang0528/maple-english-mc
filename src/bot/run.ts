@@ -94,6 +94,10 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
   const questHooks: MapleQuestHooks = {
     guiding: () => digStone?.guiding() ?? false,
     stepLine: () => digStone?.stepLine() ?? null,
+    blocksIdle: () => digStoneOn && (digStone?.blocksIdle() ?? true),
+    replyToKid: (text: string) => {
+      digStone?.noteChat(text)
+    },
   }
   ;(bot as { mapleQuest?: MapleQuestHooks }).mapleQuest = questHooks
   const limiter = new TurnLimiter(
@@ -134,6 +138,8 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
   let digStone: DigStoneGuide | null = null
   let digStoneArmTimer: ReturnType<typeof setTimeout> | null = null
   const questGuiding = () => digStone?.guiding() ?? false
+  /** Quiet from quest arm until it finishes, so hello is not buried by idle chat. */
+  const questQuiet = () => digStoneOn && (digStone?.blocksIdle() ?? true)
 
   const ready = new Promise<void>((resolve, reject) => {
     const fail = (error: Error) => {
@@ -201,7 +207,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
   }
 
   const maybeInvitePeer = () => {
-    if (questGuiding()) return
+    if (questQuiet()) return
     if (!partyIdleChatEnabled()) return
     const now = Date.now()
     if (now - lastPeerInviteAt < PEER_INVITE_MS) return
@@ -218,7 +224,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
 
   /** Lively Maple↔Spark cross-talk when the kid is quiet (party / 开黑感). */
   const maybePartyChat = () => {
-    if (questGuiding()) return
+    if (questQuiet()) return
     if (!partyIdleChatEnabled()) return
     const now = Date.now()
     const gap = config.persona === 'spark' ? PARTY_CHAT_GAP_MS_SPARK : PARTY_CHAT_GAP_MS_MAPLE
@@ -245,7 +251,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
   }
 
   const maybeIdleMove = () => {
-    if (questGuiding()) return
+    if (questQuiet()) return
     const now = Date.now()
     const marked = (bot as { mapleHoldStillUntil?: number }).mapleHoldStillUntil ?? 0
     if (now < Math.max(holdStillUntil, marked)) return
@@ -324,8 +330,8 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     perception = attachPerception(bot, {
       persona: config.persona,
       onEvent: (event) => {
+        if (questQuiet()) return
         console.log(`[${tag}] noticed: ${event.text}`)
-        if (questGuiding()) return
         const human = perception?.nearestHuman()
         // Soft co-op: when the kid digs/places, join in if nearby.
         if ((event.kind === 'dig' || event.kind === 'place') && human && event.actor) {
@@ -374,7 +380,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     }, 2_500)
 
     nudgeTimer = setInterval(() => {
-      if (questGuiding()) return
+      if (questQuiet()) return
       const now = Date.now()
       if (now - lastChatAt < NUDGE_MS) return
       if (now - lastNudgeAt < NUDGE_MS) return
@@ -399,7 +405,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
 
     envTimer = setInterval(() => {
       if (!perception) return
-      if (questGuiding()) {
+      if (questQuiet()) {
         perception.takeComment()
         return
       }
@@ -419,7 +425,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     }, ENV_COMMENT_POLL_MS)
 
     bodyRescueTimer = setInterval(() => {
-      if (questGuiding()) return
+      if (questQuiet()) return
       const human = rescueIfBuried(bot, tag)
       if (!human) return
       void performIntents(bot, human, [{ type: 'come' }]).catch((error: unknown) => {
@@ -429,7 +435,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
 
     // Keep following the human so GPT Live / chat gaps do not leave Maple frozen beside them.
     keepFollowTimer = setInterval(() => {
-      if (questGuiding()) return
+      if (questQuiet()) return
       const marked = (bot as { mapleHoldStillUntil?: number }).mapleHoldStillUntil ?? 0
       if (Date.now() < Math.max(holdStillUntil, marked)) return
       const human = primaryHuman()
@@ -457,7 +463,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
 
     // Self-initiated fun: Maple proposes mini-quests; Spark acts silently when muted.
     miniQuestTimer = setInterval(() => {
-      if (questGuiding()) return
+      if (questQuiet()) return
       const now = Date.now()
       if (now - lastMiniQuestAt < MINI_QUEST_MS) return
       const voiceHumanAt = (bot as { mapleHumanChatAt?: number }).mapleHumanChatAt ?? 0
@@ -491,7 +497,7 @@ export async function startCompanion(config: AppConfig, session?: Session): Prom
     // Situate awareness chat: blocks/mobs/time/what kid did — Maple mostly; Spark rare if unmuted.
     situateTimer = setInterval(() => {
       if (!perception) return
-      if (questGuiding()) return
+      if (questQuiet()) return
       const now = Date.now()
       if (now - lastSituateChatAt < SITUATE_CHAT_MS) return
       const voiceHumanAt = (bot as { mapleHumanChatAt?: number }).mapleHumanChatAt ?? 0

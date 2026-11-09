@@ -24,6 +24,7 @@ import {
   isDigStoneBlock,
   leadStand,
   noteDigStoneChat,
+  noteDigStoneScene,
   sameBreakTwice,
   type DigStoneEvent,
   type DigStoneQuest,
@@ -41,8 +42,10 @@ export interface DigStoneGuide {
   stepLine: () => string | null
   /** Start once, for the first allowed human. Later calls do nothing. */
   noteHuman: (username: string) => void
-  /** Name step only. True when the reply was accepted. */
+  /** Name step, or a scene reply during find/dig. True when Maple answered. */
   noteChat: (text: string) => boolean
+  /** True from arm until the quest is finished, including before hello. */
+  blocksIdle: () => boolean
 }
 
 const SCAN = digStoneScanOffsets()
@@ -73,6 +76,9 @@ export function attachDigStoneGuide(options: {
   let lastActionbarAt = 0
   let searchDir = 0
   let searchDirAt = 0
+  let idleBlocked = true
+  let lastKidKey = ''
+  let lastKidAt = 0
   const progressByPos = new Map<string, { player: string; at: number }>()
   const countedAt = new Map<string, number>()
 
@@ -152,6 +158,7 @@ export function attachDigStoneGuide(options: {
         log(`digstone step ${event.from} -> ${event.to} player=${player} reason=${event.reason}`)
         if (event.to === 'done') {
           log(`digstone quest done player=${player}`)
+          idleBlocked = false
           stopLeading()
           showTitles('done')
         } else if (event.to === 'dig') {
@@ -192,8 +199,16 @@ export function attachDigStoneGuide(options: {
 
   const noteChat = (text: string) => {
     if (stopped || !quest || quest.finished) return false
-    const noted = noteDigStoneChat(quest, { now: Date.now(), text })
+    const now = Date.now()
+    const key = `${quest.step}:${text.trim().toLowerCase()}`
+    if (key === lastKidKey && now - lastKidAt < 1_500) return true
+    const noted =
+      quest.step === 'find' || quest.step === 'dig'
+        ? noteDigStoneScene(quest, { now, text })
+        : noteDigStoneChat(quest, { now, text })
     if (noted.events.length === 0) return false
+    lastKidKey = key
+    lastKidAt = now
     quest = noted.quest
     emit(quest.player, noted.events)
     return true
@@ -311,6 +326,7 @@ export function attachDigStoneGuide(options: {
     },
     guiding: () => quest != null && !quest.finished,
     leading: () => quest != null && digStoneLeading(quest.step),
+    blocksIdle: () => idleBlocked,
     stepLine: () => digStoneStepLine(quest),
     noteHuman,
     noteChat,

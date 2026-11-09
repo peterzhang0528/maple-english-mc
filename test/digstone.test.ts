@@ -4,7 +4,9 @@ import {
   DIG_STONE_BLOCKS,
   DIG_STONE_HINTS,
   DIG_STONE_LINES,
+  DIG_STONE_NAGS,
   DIG_STONE_OBJECTIVE,
+  DIG_STONE_REPEAT_MS,
   DIG_STONE_PROGRESS,
   applyDigStoneWorld,
   chooseDigStoneLead,
@@ -22,6 +24,7 @@ import {
   isTrailingLine,
   leadStand,
   noteDigStoneChat,
+  noteDigStoneScene,
   parseKidName,
   sameBreakTwice,
   speakDuringQuest,
@@ -269,14 +272,16 @@ test('chat is not an input: time alone never finishes or skips a dig step', () =
   const repeat = tickDigStone(quest, { now: 14_000, ...noStone, repeatMs: 14_000, hintAfterMs: 18_000 })
   assert.equal(repeat.quest.step, 'find')
   assert.equal(repeat.quest.finished, false)
-  assert.deepEqual(repeat.events, [{ type: 'say', step: 'find', text: 'Come with me. Dig three stones.' }])
+  assert.equal(repeat.quest.dug, 0)
+  assert.notEqual(said(repeat.events)[0], DIG_STONE_LINES.find)
 })
 
 test('a stuck kid hears the same english step, then one chinese hint', () => {
   const started = { quest: atFind() }
   const repeat = tickDigStone(started.quest, { now: 14_000, ...noStone, repeatMs: 14_000, hintAfterMs: 18_000 })
   assert.equal(repeat.quest.step, 'find')
-  assert.deepEqual(repeat.events, [{ type: 'say', step: 'find', text: 'Come with me. Dig three stones.' }])
+  assert.equal(repeat.events.length, 1)
+  assert.notEqual(said(repeat.events)[0], DIG_STONE_LINES.find)
 
   const hint = tickDigStone(repeat.quest, { now: 18_000, ...noStone, repeatMs: 14_000, hintAfterMs: 18_000 })
   assert.deepEqual(hint.events, [{ type: 'hint', step: 'find', text: '跟着我去挖石头。' }])
@@ -286,7 +291,8 @@ test('a stuck kid hears the same english step, then one chinese hint', () => {
   assert.equal(again.events.length, 0)
 
   const englishAgain = tickDigStone(again.quest, { now: 28_000, ...noStone, repeatMs: 14_000, hintAfterMs: 18_000 })
-  assert.deepEqual(englishAgain.events, [{ type: 'say', step: 'find', text: 'Come with me. Dig three stones.' }])
+  assert.notEqual(said(englishAgain.events)[0], said(repeat.events)[0])
+  assert.equal(englishAgain.quest.step, 'find')
   assert.equal(englishAgain.events.some((event) => event.type === 'hint'), false)
 
   const digging = applyDigStoneWorld(englishAgain.quest, { now: 29_000, visible: true, nearStone: true, breaks: 0 })
@@ -360,7 +366,7 @@ test('silence on the name uses the join username, then the invite', () => {
     hintAfterMs: 18_000,
   })
   assert.equal(repeat.quest.step, 'name')
-  assert.deepEqual(said(repeat.events), ["What's your name?"])
+  assert.equal(said(repeat.events)[0], 'Tell me your name.')
 
   const fallback = tickDigStone(repeat.quest, {
     now: 1_600 + 18_000,
@@ -394,9 +400,11 @@ test('a spoken name is kept, and hi or a slash is not a name', () => {
   assert.equal(parseKidName('hi'), null)
   assert.equal(parseKidName('/op Maple'), null)
   const asked = tickDigStone(createDigStoneQuest('Kid', 0).quest, { now: 1_600, ...noStone, beatMs: 1_600 })
-  const hi = noteDigStoneChat(asked.quest, { now: 2_000, text: 'hi' })
-  assert.equal(hi.quest.called, 'Kid')
-  assert.ok(said(hi.events).includes('I will call you Kid.'))
+  const hi = noteDigStoneChat(asked.quest, { now: 2_000, text: 'Hi, Maple' })
+  assert.equal(hi.quest.step, 'name')
+  assert.equal(hi.quest.called, null)
+  assert.equal(said(hi.events)[0], 'Hi! What is your name?')
+  assert.equal(said(hi.events).some((line) => line.includes('peterzhang0528') || line.includes('I will call you')), false)
   const slash = noteDigStoneChat(asked.quest, { now: 2_000, text: '/gamemode creative' })
   assert.equal(slash.events.length, 0)
   assert.equal(slash.quest.step, 'name')
@@ -447,4 +455,60 @@ test('trailing lines are replaced while guiding, and she leads to exposed stone'
   assert.ok(title.some((line) => line.includes('actionbar')))
   assert.equal(digStoneTitleCommands('bad name', 'find').length, 0)
   assert.equal(digStoneTitleCommands('Steve', 'actionbar').length, 1)
+})
+
+test('scene questions get a short reply and do not skip the dig', () => {
+  assert.ok(DIG_STONE_REPEAT_MS >= 28_000)
+  for (const line of [...DIG_STONE_NAGS.find, ...DIG_STONE_NAGS.dig, ...DIG_STONE_NAGS.name]) {
+    assert.ok(englishWordCount(line) <= 10, line)
+  }
+
+  let quest = atFind()
+  const where = noteDigStoneScene(quest, { now: 1_000, text: 'Where are you' })
+  assert.equal(where.quest.step, 'find')
+  assert.equal(where.quest.dug, 0)
+  assert.match(said(where.events)[0] ?? '', /here|lead|Follow me/i)
+  assert.notEqual(said(where.events)[0], DIG_STONE_LINES.find)
+
+  const come = noteDigStoneScene(where.quest, { now: 2_000, text: 'Come here. Maple' })
+  assert.equal(come.quest.step, 'find')
+  assert.match(said(come.events)[0] ?? '', /come|Follow me|lead/i)
+  assert.notEqual(said(come.events)[0], DIG_STONE_LINES.find)
+
+  const what = noteDigStoneScene(come.quest, { now: 3_000, text: "What's that" })
+  assert.match(said(what.events)[0] ?? '', /block|stone/i)
+  assert.equal(what.quest.finished, false)
+
+  const math = noteDigStoneScene(what.quest, { now: 4_000, text: 'one plus one' })
+  assert.match(said(math.events)[0] ?? '', /math|three stones/i)
+  assert.equal(math.quest.dug, 0)
+
+  const zh = noteDigStoneScene(math.quest, { now: 5_000, text: '为什么草木' })
+  assert.match(said(zh.events)[0] ?? '', /hear|English|dig stone|Come with me/i)
+  assert.equal(zh.quest.step, 'find')
+
+  const again = noteDigStoneScene(where.quest, { now: 6_000, text: 'Where are you' })
+  assert.notEqual(said(again.events)[0], said(where.events)[0])
+
+  const firstNag = tickDigStone(atFind(), { now: DIG_STONE_REPEAT_MS, ...noStone })
+  const secondNag = tickDigStone(firstNag.quest, { now: DIG_STONE_REPEAT_MS * 2, ...noStone })
+  assert.notEqual(said(firstNag.events)[0], said(secondNag.events)[0])
+  assert.equal(secondNag.quest.step, 'find')
+  assert.equal(secondNag.quest.dug, 0)
+})
+
+test('a long join name is not announced when the kid never answers', () => {
+  const started = createDigStoneQuest('peterzhang0528', 0)
+  const asked = tickDigStone(started.quest, { now: 1_600, ...noStone, beatMs: 1_600, hintAfterMs: 18_000 })
+  const fallback = tickDigStone(asked.quest, {
+    now: 1_600 + 18_000,
+    ...noStone,
+    beatMs: 1_600,
+    hintAfterMs: 18_000,
+    repeatMs: 28_000,
+  })
+  assert.equal(fallback.quest.called, 'peterzhang0528')
+  assert.equal(fallback.quest.step, 'invite')
+  assert.ok(said(fallback.events).includes("Okay! Let's play."))
+  assert.equal(said(fallback.events).some((line) => line.includes('peterzhang0528')), false)
 })

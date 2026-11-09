@@ -38,8 +38,16 @@ export const DIG_STONE_HINTS = {
   dig: '挖三块石头。',
 } as const
 
+/** Rotating reminders. Not the same sentence every time. */
+export const DIG_STONE_NAGS = {
+  name: ["What's your name?", 'Tell me your name.'],
+  find: ['Come with me.', 'This way. I will lead.', 'Follow me to the stone.', 'I am over here.'],
+  dig: ['Dig three stones.', 'Break three stone blocks.', 'You need three stones.', 'Keep going. Three stones.'],
+} as const
+
 export const DIG_STONE_TARGET = 3
-export const DIG_STONE_REPEAT_MS = 14_000
+/** Quiet reminder. Long enough that a real reply is not buried by the same line. */
+export const DIG_STONE_REPEAT_MS = 28_000
 export const DIG_STONE_HINT_MS = 18_000
 /** Pause so the hello, and then the invite, can be heard before the next line. */
 export const DIG_STONE_BEAT_MS = 1_600
@@ -80,6 +88,8 @@ export interface DigStoneQuest {
   dug: number
   stepEnteredAt: number
   lastSpokenAt: number
+  /** Last reminder or scene line, so the next one can differ. */
+  lastNag: string | null
   hinted: boolean
   finished: boolean
 }
@@ -115,6 +125,8 @@ export interface LeadTarget {
 export interface MapleQuestHooks {
   guiding: () => boolean
   stepLine: () => string | null
+  blocksIdle?: () => boolean
+  replyToKid?: (text: string) => void
 }
 
 export interface DigStoneTickInput {
@@ -322,30 +334,66 @@ export function parseKidName(text: string): string | null {
   return kept.map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ')
 }
 
-/** Use a parsed name when they answered with one. Otherwise the join username. Null ignores slash chat. */
-export function nameFromReply(text: string, username: string): string | null {
-  const raw = text.trim()
-  if (!raw || raw.startsWith('/')) return null
-  return parseKidName(raw) ?? displayJoinName(username)
+export function digStoneNameLine(called: string, fromReply: boolean): string {
+  if (fromReply) return `Nice to meet you, ${called}.`
+  if (called.length > 12 || /\d/.test(called)) return "Okay! Let's play."
+  return `I will call you ${called}.`
 }
 
-export function digStoneNameLine(called: string, fromReply: boolean): string {
-  return fromReply ? `Nice to meet you, ${called}.` : `I will call you ${called}.`
+/** A hello or other non-name stays on the question. It does not lock the join username. */
+export function digStoneNameReask(text: string): string {
+  if (/^\s*(hi|hello|hey)\b/i.test(text)) return 'Hi! What is your name?'
+  return 'Nice. What is your name?'
+}
+
+export function digStoneNagLine(step: 'name' | 'find' | 'dig', last: string | null): string {
+  const pool = DIG_STONE_NAGS[step]
+  const index = last ? pool.findIndex((line) => line === last) : -1
+  return pool[(index + 1) % pool.length] ?? pool[0]
 }
 
 /**
- * Name step only. A real reply settles the name and says the invite.
- * Other steps ignore chat, so typing cannot skip the dig.
+ * Short answer for something the kid said during find or dig.
+ * Does not finish the quest. Varied so the same question is not a broken record.
+ */
+export function digStoneSceneReply(step: 'find' | 'dig', text: string, last: string | null): string {
+  const pool = scenePool(step, text)
+  const index = last ? pool.findIndex((line) => line === last) : -1
+  return pool[(index + 1) % pool.length] ?? pool[0]
+}
+
+/**
+ * Name step only. A real name moves on. A greeting or other chat just asks again.
+ * The join username is used only by the silence timer, not by a stray "Hi".
+ * Find and dig chat is handled by noteDigStoneScene so it cannot skip a dig.
  */
 export function noteDigStoneChat(
   quest: DigStoneQuest,
   input: { now: number; text: string },
 ): { quest: DigStoneQuest; events: DigStoneEvent[] } {
   if (quest.finished || quest.step !== 'name') return { quest, events: [] }
-  const called = nameFromReply(input.text, quest.player)
-  if (!called) return { quest, events: [] }
-  const fromReply = parseKidName(input.text) != null
-  return enterInvite(quest, called, input.now, fromReply)
+  const raw = input.text.trim()
+  if (!raw || raw.startsWith('/')) return { quest, events: [] }
+  const parsed = parseKidName(raw)
+  if (parsed) return enterInvite(quest, parsed, input.now, true)
+  const line = digStoneNameReask(raw)
+  return {
+    quest: { ...quest, lastSpokenAt: input.now, lastNag: line },
+    events: [{ type: 'say', step: 'name', text: line }],
+  }
+}
+
+/** Scene reply during find or dig. Step and dig count stay put. */
+export function noteDigStoneScene(
+  quest: DigStoneQuest,
+  input: { now: number; text: string },
+): { quest: DigStoneQuest; events: DigStoneEvent[] } {
+  if (quest.finished || (quest.step !== 'find' && quest.step !== 'dig')) return { quest, events: [] }
+  const text = digStoneSceneReply(quest.step, input.text, quest.lastNag)
+  return {
+    quest: { ...quest, lastSpokenAt: input.now, lastNag: text },
+    events: [{ type: 'say', step: quest.step, text }],
+  }
 }
 
 export function createDigStoneQuest(player: string, now: number): { quest: DigStoneQuest; events: DigStoneEvent[] } {
@@ -356,6 +404,7 @@ export function createDigStoneQuest(player: string, now: number): { quest: DigSt
     dug: 0,
     stepEnteredAt: now,
     lastSpokenAt: now,
+    lastNag: null,
     hinted: false,
     finished: false,
   }
@@ -389,6 +438,7 @@ export function tickDigStone(
       step: 'name',
       stepEnteredAt: input.now,
       lastSpokenAt: input.now,
+      lastNag: DIG_STONE_LINES.name,
       hinted: false,
     }
     events.push({ type: 'advance', from: 'hello', to: 'name', reason: 'hello' })
@@ -406,6 +456,7 @@ export function tickDigStone(
       step: 'find',
       stepEnteredAt: input.now,
       lastSpokenAt: input.now,
+      lastNag: DIG_STONE_LINES.find,
       hinted: false,
     }
     events.push({ type: 'advance', from: 'invite', to: 'find', reason: 'play' })
@@ -465,8 +516,9 @@ export function tickDigStone(
     input.now - next.lastSpokenAt >= repeatMs
   ) {
     const step = next.step
-    next = { ...next, lastSpokenAt: input.now }
-    events.push({ type: 'say', step, text: DIG_STONE_LINES[step] })
+    const text = digStoneNagLine(step, next.lastNag)
+    next = { ...next, lastSpokenAt: input.now, lastNag: text }
+    events.push({ type: 'say', step, text })
     return { quest: next, events }
   }
 
@@ -538,6 +590,30 @@ export function applyDigStoneWorld(
     events.push(...counted.events)
   }
   return { quest: current, events }
+}
+
+function scenePool(step: 'find' | 'dig', text: string): readonly string[] {
+  const lower = text.toLowerCase()
+  if (/\bwhere\b/.test(lower) || /在哪/.test(text)) {
+    return step === 'find'
+      ? ['I am here. Follow me.', 'Look for me. I will lead.', 'I am this way. Come on.']
+      : ['I am here, by the stone.', 'Right here. Dig three stones.', 'I am next to the stone.']
+  }
+  if (/\bcome here\b|\bover here\b|\bcome to me\b/.test(lower)) {
+    return ['You come with me. I lead.', 'Follow me. I go first.', 'I lead the way. Come on.']
+  }
+  if (/\bwhat(?:'s| is) (?:that|this)\b/.test(lower)) {
+    return ['That is a block. We want stone.', 'Look around. We dig stone.', 'A block. Three stones is the game.']
+  }
+  if (/\bplus\b|\btimes\b|\bminus\b|\d/.test(lower)) {
+    return ['Fun math. First, three stones.', 'Nice try. Dig three stones with me.']
+  }
+  if (/[^\u0000-\u007F]/.test(text)) {
+    return ['I hear you. Come with me.', 'English together. This way.', 'I am here. We dig stone.']
+  }
+  return step === 'find'
+    ? ['I am with you. This way.', 'Come along. Stone is ahead.', 'Stay with me. Three stones.']
+    : ['I am here. Dig three stones.', 'You can dig. Three stones.', 'Break stone. I am with you.']
 }
 
 function enterInvite(

@@ -32,7 +32,7 @@ She does not follow you, and she does not say she will walk behind you. She is t
 When you join she says hello before any quest:
 
 1. `Hi! You can call me Maple.`
-2. `What's your name?` If you answer (`I'm Tom`, `Tom`), she says `Nice to meet you, Tom.` If you say nothing for about 18 seconds, she uses your join name: `I will call you Steve.`
+2. `What's your name?` If you answer (`I'm Tom`, `Tom`), she says `Nice to meet you, Tom.` `Hi, Maple` is just hello — she asks again, and she does not announce a long username. If you say nothing for about 18 seconds, a short name becomes `I will call you Steve.` A long join name stays quiet: `Okay! Let's play.`
 3. `Hey, wanna play something cool?`
 4. Then the mission is obvious: chat says `Quest: Dig three stones.` and `Come with me. Dig three stones.` On Paper she also puts **Dig three stones** on the title, with subtitle `Follow Maple`, and keeps that on the action bar. Title commands need her to be allowed to run `/title`. The chat lines still show the goal if the command is refused.
 
@@ -49,9 +49,13 @@ A wooden pickaxe is faster. Punching stone also counts. You do not have to say "
 | Dig | `Dig three stones.` | Break three allowed blocks. `One stone.` / `Two stones.` mark progress. |
 | Done | `Good job! Three stones!` | Stop. One quest, then she goes back to normal play. |
 
-Typing does not skip the dig. During the name step, a normal chat line is your answer. `follow me` does not make her trail you. Lines like "right behind me" or "I will follow you" are not said while she is guiding.
+Typing does not skip the dig. During find and dig, a question about the scene gets a short answer (`Where are you` → she says she is here and to follow; `What's that` → a block, then stone; `Come here` → she still leads). Off-topic and Chinese get a brief English redirect. She does not paste `Come with me. Dig three stones.` after every line.
 
-If the find or dig step sits for about 18 seconds, she adds one short Chinese hint (`跟着我去挖石头。` or `挖三块石头。`), once per step. English stays the lesson. She repeats the current English line about every 14 seconds.
+Reminders are about every 28 seconds, and the wording changes. `follow me` does not make her trail you. Lines like "right behind me" or "I will follow you" are not said while she is guiding.
+
+If the find or dig step sits for about 18 seconds, she adds one short Chinese hint (`跟着我去挖石头。` or `挖三块石头。`), once per step. English stays the lesson.
+
+Until the quest is finished, including the moment before hello, she does not add situate lines, "noticed" comments, mini-quests, or party idle chat. Morning, night, and swim lines stay out of this scene.
 
 While she is guiding, she does not send the usual join invite, party idle chat, mini-quests, situate chatter, or quiet nudges. Those come back after `Good job! Three stones!`
 
@@ -110,4 +114,5 @@ A chat line while the quest is open looks like this, and the step does not chang
 5. 她先做很短的招呼：`Hi! You can call me Maple.`，再问 `What's your name?`。你回答名字就用你的名字；大约 18 秒不回答，就用你进服的用户名。然后她说 `Hey, wanna play something cool?`。
 6. 招呼之后才是任务。聊天会出现 `Quest: Dig three stones.` 和 `Come with me. Dig three stones.`。Paper 上还会打出大标题 **Dig three stones**（副标题 `Follow Maple`）和动作栏。她带路走向石头，你跟着她。她不会跟在你后面，也不会说 right behind me。
 7. 到了石头旁边她说 `Dig three stones.`。敲碎三块允许的石头（石头、圆石、深板岩、安山岩、闪长岩、花岗岩、凝灰岩等，见上面的名单）。她会说 `One stone.`、`Two stones.`，然后 `Good job! Three stones!`。
-8. 挖石头这一步不能靠打字跳过。找石头或挖石头卡住大约 18 秒，她用一句中文提示（`跟着我去挖石头。` 或 `挖三块石头。`），然后继续重复当前的英语。
+8. 挖石头不能靠打字跳过。问 `Where are you`、`What's that`、`Come here` 时，她会短短接一句场景里的话，不会每句都重复 `Come with me. Dig three stones.` 提醒大约 28 秒一次，而且换说法。任务没完成前，不再插早安、夜晚、游泳这类闲聊。
+9. `Hi, Maple` 只是打招呼，她会再问名字，不会说 `I will call you peterzhang0528`。大约 18 秒真的不回答，短名字才会说 `I will call you Steve.` 很长的进服名只说 `Okay! Let's play.`
