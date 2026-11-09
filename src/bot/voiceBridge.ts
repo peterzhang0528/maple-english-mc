@@ -5,6 +5,7 @@ import { toChatLines } from '../chat/split.js'
 import { redactSecrets } from '../voice/config.js'
 import { performIntents } from '../behavior/actions.js'
 import { parseIntents } from '../behavior/intents.js'
+import { speakDuringQuest, type MapleQuestHooks } from '../behavior/digstone.js'
 import type { Intent } from '../types.js'
 import { isCompanionUsername } from '../chat/persona.js'
 
@@ -84,6 +85,11 @@ export async function applySpokenTurn(input: {
       const remember = (input.bot as { mapleRememberSaid?: (t: string) => void }).mapleRememberSaid
       if (typeof remember === 'function') remember(heard)
     }
+    const hooks = (input.bot as { mapleQuest?: MapleQuestHooks } | null)?.mapleQuest
+    if (heard && hooks?.guiding()) {
+      hooks.replyToKid?.(heard)
+      return
+    }
     // GPT Live only posts transcripts (no tool/action channel). Parse walk intents here
     // the same way Doubao's effectFromSpeech does, so "come here / follow me" moves the body.
     const intents = parseIntents(heard).filter((intent) => MOVE_TYPES.has(intent.type))
@@ -99,6 +105,8 @@ export async function applySpokenTurn(input: {
   }
 
   if (message.type === 'maple_text' && message.final === true && typeof message.text === 'string') {
+    const hooks = (input.bot as { mapleQuest?: MapleQuestHooks } | null)?.mapleQuest
+    if (hooks?.blocksIdle?.()) return
     await say(input, message.text)
   }
 }
@@ -120,6 +128,15 @@ async function performVoiceIntents(
     console.log('[maple] Voice action is waiting until Maple has joined the Java server.')
     return
   }
+  const hooks = (bot as { mapleQuest?: MapleQuestHooks }).mapleQuest
+  let moves = intents
+  if (hooks?.guiding()) {
+    moves = moves.filter((intent) => intent.type !== 'follow' && intent.type !== 'come')
+    if (moves.length === 0) {
+      console.log('[maple] digstone voice ignores follow; Maple is leading')
+      return
+    }
+  }
   const player = chooseVoicePlayer({
     botUsername: bot.username,
     online: listCompanionPlayers(bot),
@@ -133,13 +150,13 @@ async function performVoiceIntents(
     await say(input, hint)
     return
   }
-  console.log(`[maple] voice ${intents.map((intent) => intent.type).join(', ')} -> ${player}`)
+  console.log(`[maple] voice ${moves.map((intent) => intent.type).join(', ')} -> ${player}`)
   const marked = bot as { mapleHoldStillUntil?: number }
-  if (intents.some((intent) => intent.type === 'stop')) marked.mapleHoldStillUntil = Date.now() + 45_000
-  else if (intents.some((intent) => intent.type === 'follow' || intent.type === 'come' || intent.type === 'dig' || intent.type === 'build' || intent.type === 'build_house' || intent.type === 'give' || intent.type === 'assist')) marked.mapleHoldStillUntil = 0
+  if (moves.some((intent) => intent.type === 'stop')) marked.mapleHoldStillUntil = Date.now() + 45_000
+  else if (moves.some((intent) => intent.type === 'follow' || intent.type === 'come' || intent.type === 'dig' || intent.type === 'build' || intent.type === 'build_house' || intent.type === 'give' || intent.type === 'assist')) marked.mapleHoldStillUntil = 0
   let notes: string[] = []
   try {
-    notes = await performIntents(bot, player, intents)
+    notes = await performIntents(bot, player, moves)
   } catch (error) {
     console.error(`[maple] voice action: ${error instanceof Error ? error.message : String(error)}`)
     return
@@ -165,11 +182,14 @@ async function say(
   if (!bot) return
   const clean = redactSecrets(text, input.secrets ?? []).replace(/\s+/g, ' ').trim()
   if (!clean) return
+  const hooks = (bot as { mapleQuest?: MapleQuestHooks }).mapleQuest
+  const spoken = speakDuringQuest(clean, hooks)
+  if (!spoken) return
   const now = input.now ?? Date.now()
-  if (clean === input.mouth.lastText && now - input.mouth.lastAt < DEDUPE_MS) return
-  input.mouth.lastText = clean
+  if (spoken === input.mouth.lastText && now - input.mouth.lastAt < DEDUPE_MS) return
+  input.mouth.lastText = spoken
   input.mouth.lastAt = now
-  const lines = toChatLines(clean, input.config.chatMaxLineChars, input.config.chatMaxLines)
+  const lines = toChatLines(spoken, input.config.chatMaxLineChars, input.config.chatMaxLines)
   if (lines.length === 0) return
   const player = chooseVoicePlayer({
     botUsername: bot.username,
